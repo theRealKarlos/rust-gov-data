@@ -1,5 +1,7 @@
 # gov-data: UK Government Dataset Metadata to AWS S3
 
+> **Note:** This is a **lab project** intended for experimentation, learning, and demonstration purposes. It is not designed or maintained for production use. Use at your own risk.
+
 ## Project Overview
 
 gov-data is a Rust project that implements an AWS Lambda function to fetch metadata about datasets from the UK Government's CKAN data portal, serialize the metadata into a CSV file, and upload the resulting CSV to an AWS S3 bucket. This enables automated, serverless collection and storage of open government data for further analysis or downstream processing.
@@ -53,13 +55,20 @@ To run in test mode (processes only a small number of datasets):
 
 ## Building
 
-To build the project for production, run:
+To build the project for AWS Lambda (production), you must use the cross compiler with Docker:
 
 ```bash
-cargo lambda build --release
+cargo lambda build --compiler cross --release
 ```
 
-Remove the `--release` flag to build for development.
+- This command uses Docker and the cross compiler to ensure compatibility with the Lambda environment.
+- Make sure Docker Desktop is running before building.
+
+For local development (not for Lambda), you can use:
+
+```bash
+cargo lambda build
+```
 
 Read more about building your lambda function in [the Cargo Lambda documentation](https://www.cargo-lambda.info/commands/build.html).
 
