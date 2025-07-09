@@ -40,7 +40,7 @@ fn test_parse_package_show_response_some() {
     let parsed: PackageShowResponse = serde_json::from_value(data).unwrap();
     assert!(parsed.result.is_some());
     let result = parsed.result.unwrap();
-    assert_eq!(result["id"], "abc");
-    assert_eq!(result["title"], "Test");
+    assert_eq!(result.id, "abc");
+    assert_eq!(result.title, "Test");
     // Additional checks can be added for other fields if needed.
 } 

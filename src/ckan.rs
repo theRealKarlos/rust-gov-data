@@ -11,27 +11,40 @@ pub struct PackageListResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct PackageShowResponse {
-    pub result: Option<serde_json::Value>,
+    pub result: Option<CkanDataset>,
 }
 
-pub fn extract_resource_formats_and_urls(result: &serde_json::Value) -> (String, Vec<String>) {
-    let resources = result.get("resources").and_then(|v| v.as_array());
-    let formats = resources
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|res| res.get("format").and_then(|f| f.as_str()))
-                .collect::<Vec<&str>>()
-                .join(", ")
-        })
-        .unwrap_or_default();
-    let urls = resources
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|res| res.get("url").and_then(|u| u.as_str()))
-                .map(|s| s.to_string())
-                .collect::<Vec<String>>()
-        })
-        .unwrap_or_default();
+#[derive(Debug, Deserialize)]
+pub struct CkanDataset {
+    pub id: String,
+    pub title: String,
+    pub notes: String,
+    pub license_title: String,
+    pub organization: CkanOrganization,
+    pub metadata_created: String,
+    pub metadata_modified: String,
+    pub resources: Vec<CkanResource>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CkanOrganization {
+    pub title: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CkanResource {
+    pub format: Option<String>,
+    pub url: Option<String>,
+}
+
+pub fn extract_resource_formats_and_urls(dataset: &CkanDataset) -> (String, Vec<String>) {
+    let formats = dataset.resources.iter()
+        .filter_map(|res| res.format.as_deref())
+        .collect::<Vec<&str>>()
+        .join(", ");
+    let urls = dataset.resources.iter()
+        .filter_map(|res| res.url.clone())
+        .collect::<Vec<String>>();
     (formats, urls)
 }
 
@@ -57,24 +70,23 @@ pub async fn fetch_dataset_metadata(client: Arc<Client>, config: &Config, datase
         .await?;
     if response.status().is_success() {
         let metadata: PackageShowResponse = response.json().await?;
-        let result = match &metadata.result {
+        let dataset = match &metadata.result {
             Some(val) => val,
             None => {
                 return Ok(None);
             }
         };
-        let (formats, urls_vec) = extract_resource_formats_and_urls(result);
-        let notes = result["notes"].as_str().unwrap_or("");
+        let (formats, urls_vec) = extract_resource_formats_and_urls(dataset);
         let re = Regex::new(r"<[^>]+>").expect("Regex should compile");
-        let clean_description = re.replace_all(notes, "").to_string();
+        let clean_description = re.replace_all(&dataset.notes, "").to_string();
         return Ok(Some((crate::DatasetMetadata {
-            id: result["id"].as_str().unwrap_or_default().to_string(),
-            title: result["title"].as_str().unwrap_or_default().to_string(),
+            id: dataset.id.clone(),
+            title: dataset.title.clone(),
             description: clean_description,
-            license: result["license_title"].as_str().unwrap_or_default().to_string(),
-            organization: result["organization"]["title"].as_str().unwrap_or_default().to_string(),
-            created: result["metadata_created"].as_str().unwrap_or_default().to_string(),
-            modified: result["metadata_modified"].as_str().unwrap_or_default().to_string(),
+            license: dataset.license_title.clone(),
+            organization: dataset.organization.title.clone(),
+            created: dataset.metadata_created.clone(),
+            modified: dataset.metadata_modified.clone(),
             format: formats,
         }, urls_vec)));
     }
