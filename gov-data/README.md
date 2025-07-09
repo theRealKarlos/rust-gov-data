@@ -104,6 +104,30 @@ To deploy the project to AWS Lambda, follow these steps:
 
 - The cross compiler is used to avoid issues compiling the OpenSSL dependency (and other native dependencies) for AWS Lambda. This ensures all dependencies are built in an environment compatible with Lambda, preventing common build and runtime errors.
 
+### Important: S3 Bucket Region and IAM Permissions
+
+- **Region:** Your Lambda function must be deployed in the **same AWS region** as your S3 bucket. If your bucket is in `eu-west-1`, deploy your Lambda to `eu-west-1`.
+- **IAM Permissions:** The IAM role used by your Lambda function must have permissions to access your S3 bucket. At a minimum, it needs:
+
+  - `s3:PutObject`
+  - `s3:GetObject`
+  - `s3:ListBucket`
+
+  Example policy:
+
+  ```json
+  {
+    "Effect": "Allow",
+    "Action": ["s3:PutObject", "s3:GetObject", "s3:ListBucket"],
+    "Resource": [
+      "arn:aws:s3:::gov-data-lucky4some.com",
+      "arn:aws:s3:::gov-data-lucky4some.com/*"
+    ]
+  }
+  ```
+
+- You can add this as an inline policy to your Lambda's execution role in the AWS IAM Console.
+
 ### 1. Build for AWS Lambda
 
 First, build your project for the AWS Lambda target using the cross compiler:

@@ -1,25 +1,26 @@
-use aws_config::meta::region::RegionProviderChain;
-use aws_sdk_s3::primitives::ByteStream;
-use aws_sdk_s3::Client as S3Client;
-use lambda_runtime::{run, service_fn, Error, LambdaEvent};
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use serde_json::to_string;
-use std::fs::File;
-use std::io::Read;
-use std::sync::Arc;
-use tokio::time::{Duration};
-use futures::stream::{self, StreamExt};
-use anyhow::{Context, Result};
-// Import tracing for structured, leveled logging (better than println! for production/Lambda)
-use tracing::{info, error};
+// AWS SDK and Lambda runtime imports for interacting with AWS services and Lambda events.
+use aws_config::meta::region::RegionProviderChain; // For region configuration
+use aws_sdk_s3::primitives::ByteStream; // For S3 file upload
+use aws_sdk_s3::Client as S3Client; // S3 client
+use lambda_runtime::{run, service_fn, Error, LambdaEvent}; // Lambda runtime and event types
+use reqwest::Client; // HTTP client for CKAN API
+use serde::{Deserialize, Serialize}; // For (de)serializing JSON and CSV
+use serde_json::to_string; // For serializing URLs as JSON
+use std::fs::File; // For file operations
+use std::io::Read; // For reading file contents
+use std::sync::Arc; // For sharing HTTP client across tasks
+use tokio::time::{Duration}; // For timeouts
+use futures::stream::{self, StreamExt}; // For concurrent async processing
+use anyhow::{Context, Result}; // For error context and handling
+use tracing::{info, error}; // For structured logging
 
-// Generic helper for environment variables with defaults.
+// Helper to get an environment variable or use a default value if not set.
 fn get_env_or_default(var: &str, default: &str) -> String {
     std::env::var(var).unwrap_or_else(|_| default.to_string())
 }
 
-// Use generic helper for all config getters.
+// Helper functions to get configuration values from environment variables or defaults.
+// These make the code flexible for different environments and easy to configure.
 fn get_ckan_api_base_url() -> String {
     get_env_or_default("CKAN_API_BASE_URL", "https://ckan.publishing.service.gov.uk/api/action")
 }
@@ -32,27 +33,35 @@ fn get_dataset_metadata_url() -> String {
 fn get_bucket_name() -> String {
     get_env_or_default("BUCKET_NAME", "gov-data-lucky4some.com")
 }
+// Returns the CSV file path. In AWS Lambda, always use /tmp/ (the only writable directory).
 fn get_csv_file() -> String {
-    get_env_or_default("CSV_FILE", "DataGovUK_Datasets.csv")
+    let filename = get_env_or_default("CSV_FILE", "DataGovUK_Datasets.csv");
+    // If running in Lambda, always use /tmp/
+    if std::env::var("LAMBDA_TASK_ROOT").is_ok() {
+        format!("/tmp/{}", filename)
+    } else {
+        filename
+    }
 }
 fn get_concurrency_limit() -> usize {
     get_env_or_default("CONCURRENCY_LIMIT", "10").parse().unwrap_or(10)
 }
 
-// Strongly-typed struct for CKAN package_list response.
-// This improves type safety and makes the code more robust to API changes.
+// Struct for the CKAN package_list API response.
+// Contains a list of dataset IDs.
 #[derive(Debug, Deserialize)]
 struct PackageListResponse {
     result: Vec<String>,
 }
 
-// Strongly-typed struct for CKAN package_show response.
-// Using Option allows us to handle missing or null results gracefully.
+// Struct for the CKAN package_show API response.
+// Contains detailed metadata for a dataset.
 #[derive(Debug, Deserialize)]
 struct PackageShowResponse {
     result: Option<serde_json::Value>,
 }
 
+// Struct for storing dataset metadata in CSV and S3.
 #[derive(Debug, Serialize, Deserialize)]
 struct DatasetMetadata {
     id: String,
@@ -93,7 +102,7 @@ fn extract_resource_formats_and_urls(result: &serde_json::Value) -> (String, Str
     (formats, urls_json)
 }
 
-// Centralized test mode truncation logic.
+// Helper to truncate a vector for test mode, limiting the number of items processed.
 fn maybe_truncate_for_test_mode<T: Clone>(items: Vec<T>, test_mode: bool, max: usize) -> Vec<T> {
     if test_mode {
         items.into_iter().take(max).collect()
@@ -119,7 +128,7 @@ async fn fetch_dataset_list(client: &Client, test_mode: bool) -> Result<Vec<Stri
 // Fetch detailed metadata for a single dataset from the CKAN API.
 // Uses a strongly-typed struct for the response and cleans up HTML in descriptions.
 async fn fetch_dataset_metadata(client: Arc<Client>, dataset_id: String) -> Result<Option<DatasetMetadata>, Error> {
-    use regex::Regex;
+    use regex::Regex; // For cleaning HTML tags from descriptions
     let url = format!("{}{}", get_dataset_metadata_url(), dataset_id);
     let response = client.get(&url)
         .timeout(Duration::from_secs(10))
@@ -137,6 +146,7 @@ async fn fetch_dataset_metadata(client: Arc<Client>, dataset_id: String) -> Resu
         };
         let (formats, urls_json) = extract_resource_formats_and_urls(result);
         let notes = result["notes"].as_str().unwrap_or("");
+        // Remove HTML tags from the description for cleaner output.
         let re = Regex::new(r"<[^>]+>").expect("Regex should compile");
         let clean_description = re.replace_all(notes, "").to_string();
         return Ok(Some(DatasetMetadata {
@@ -156,8 +166,10 @@ async fn fetch_dataset_metadata(client: Arc<Client>, dataset_id: String) -> Resu
 }
 
 // Main processing function: fetches dataset IDs, fetches metadata concurrently, writes CSV, uploads to S3, and handles test mode.
+// This is the main workflow for the Lambda function.
 async fn process_datasets(test_mode: bool) -> Result<(), Error> {
     info!("Starting process_datasets: test_mode = {}", test_mode);
+    // Create a shared HTTP client for efficient connection reuse.
     let client = Arc::new(Client::builder()
         .pool_max_idle_per_host(5)
         .timeout(Duration::from_secs(10))
@@ -191,75 +203,78 @@ async fn process_datasets(test_mode: bool) -> Result<(), Error> {
             _ => None,
         })
         .collect();
-    if !dataset_metadata.is_empty() {
-        let csv_file = get_csv_file();
+    info!("Writing {} datasets to CSV...", dataset_metadata.len());
+    let csv_file = get_csv_file();
+    // Write the dataset metadata to a CSV file. Use error context for easier debugging.
+    {
         let file = File::create(&csv_file).context("Failed to create CSV file")?;
         let mut wtr = csv::Writer::from_writer(file);
-        for dataset in dataset_metadata.iter() {
+        for dataset in &dataset_metadata {
             wtr.serialize(dataset).context("Failed to serialize dataset to CSV")?;
         }
         wtr.flush().context("Failed to flush CSV writer")?;
-        info!("CSV file written: {}", csv_file);
-        upload_to_s3(&csv_file).await?;
-        // Removed: local copy in test mode
     }
-    info!("process_datasets finished successfully.");
+    info!("CSV file written: {}", csv_file);
+    // Upload the CSV file to S3. Uses error context for robust error reporting.
+    upload_to_s3(&csv_file).await?;
+    info!("CSV file uploaded to S3 successfully.");
     Ok(())
 }
 
-// Upload the CSV file to S3. Uses error context for robust error reporting.
+// Uploads the given CSV file to the configured S3 bucket.
+// Reads the file into memory and uploads it as a ByteStream.
 async fn upload_to_s3(csv_file: &str) -> Result<(), Error> {
-    let region_provider = RegionProviderChain::default_provider().or_else("us-east-1");
+    info!("Uploading {} to S3 bucket...", csv_file);
+    // Load AWS region from environment or default provider chain.
+    let region_provider = RegionProviderChain::default_provider().or_else("eu-west-2");
     let config = aws_config::from_env().region(region_provider).load().await;
-    let s3_client = S3Client::new(&config);
+    let client = S3Client::new(&config);
+    let bucket = get_bucket_name();
+    let key = csv_file.split('/').last().unwrap_or(csv_file);
+    // Read the file into a buffer for upload.
     let mut file = File::open(csv_file).context("Failed to open CSV file for S3 upload")?;
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer).context("Failed to read CSV file for S3 upload")?;
-    s3_client.put_object()
-        .bucket(get_bucket_name())
-        .key("DataGovUK_Datasets.csv")
+    // Upload the file to S3.
+    client.put_object()
+        .bucket(&bucket)
+        .key(key)
         .body(ByteStream::from(buffer))
         .send()
         .await?;
-    info!("CSV successfully uploaded to S3.");
+    info!("File uploaded to S3: bucket={}, key={}", bucket, key);
     Ok(())
 }
 
+// Lambda handler function. This is the entry point for AWS Lambda.
+// It can also be called locally for testing.
 async fn function_handler(event: LambdaEvent<serde_json::Value>) -> Result<serde_json::Value, Error> {
-    println!("Lambda event payload: {:?}", event.payload); // Debug print
-    let test_mode = event.payload.get("test_mode").and_then(|v| v.as_bool())
-        .or_else(|| {
-            // Try to parse from a stringified body if present
-            event.payload.get("body")
-                .and_then(|v| v.as_str())
-                .and_then(|body| serde_json::from_str::<serde_json::Value>(body).ok())
-                .and_then(|v| v.get("test_mode").and_then(|v| v.as_bool()))
-        })
-        .unwrap_or(false);
-    println!("function_handler: test_mode = {}", test_mode); // Debug print
-
-    match process_datasets(test_mode).await {
-        Ok(_) => Ok(serde_json::json!({ "message": "Dataset metadata stored in S3", "test_mode": test_mode })),
-        Err(e) => {
-            error!("process_datasets failed: {:?}", e);
-            // Return a JSON error message but do not propagate the error, so Lambda exits cleanly
-            Ok(serde_json::json!({
-                "error": format!("process_datasets failed: {}", e),
-                "test_mode": test_mode
-            }))
-        }
-    }
+    // Check for test mode in the event payload or environment variable.
+    let test_mode = event.payload.get("test_mode")
+        .and_then(|v| v.as_bool())
+        .unwrap_or_else(|| std::env::var("TEST_MODE").map(|v| v == "1" || v.to_lowercase() == "true").unwrap_or(false));
+    info!("Lambda handler invoked. test_mode = {}", test_mode);
+    // Run the main processing logic.
+    process_datasets(test_mode).await?;
+    // Return a success message as JSON.
+    Ok(serde_json::json!({ "status": "success" }))
 }
 
-// Initialize tracing for structured logging in main().
-// This ensures logs are visible in both local and Lambda environments.
+// Main function for the binary. Sets up logging and runs the Lambda runtime.
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
+    // Initialize tracing subscriber for logging. This works for both local and Lambda environments.
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_target(false)
+        .without_time()
+        .init();
+    // Run the Lambda runtime with our handler.
     if let Err(e) = run(service_fn(function_handler)).await {
-        error!("Lambda runtime exited with error: {:?}", e);
+        error!("Lambda runtime error: {}", e);
     }
 }
 
+// Unit tests are in a separate file (src/tests.rs) for clarity and maintainability.
 #[cfg(test)]
 mod tests;
