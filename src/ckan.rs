@@ -3,6 +3,13 @@ use crate::error::AppError;
 use reqwest::Client;
 use serde::Deserialize;
 use std::sync::Arc;
+use once_cell::sync::Lazy;
+use regex::Regex;
+
+// Compile regex once and reuse it for HTML tag removal
+static HTML_TAG_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"<[^>]+>").expect("HTML tag regex should compile")
+});
 
 #[derive(Debug, Deserialize)]
 pub struct PackageListResponse {
@@ -48,9 +55,20 @@ pub fn extract_resource_formats_and_urls(dataset: &CkanDataset) -> (String, Vec<
     (formats, urls)
 }
 
+// Create an optimized HTTP client with better connection pooling
+pub fn create_http_client() -> Result<Client, AppError> {
+    Ok(Client::builder()
+        .pool_max_idle_per_host(10) // Increased from 5
+        .pool_idle_timeout(std::time::Duration::from_secs(90)) // Keep connections alive longer
+        .timeout(std::time::Duration::from_secs(15)) // Increased timeout
+        .connect_timeout(std::time::Duration::from_secs(10)) // Add connection timeout
+        .tcp_keepalive(Some(std::time::Duration::from_secs(60))) // Enable TCP keepalive
+        .build()?)
+}
+
 pub async fn fetch_dataset_list(client: &Client, config: &Config, test_mode: bool) -> Result<Vec<String>, AppError> {
     let response = client.get(&config.dataset_list_url())
-        .timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(15)) // Increased timeout
         .send()
         .await?;
     let package_list: PackageListResponse = response.json().await?;
@@ -62,10 +80,9 @@ pub async fn fetch_dataset_list(client: &Client, config: &Config, test_mode: boo
 }
 
 pub async fn fetch_dataset_metadata(client: Arc<Client>, config: &Config, dataset_id: String) -> Result<Option<(crate::DatasetMetadata, Vec<String>)>, AppError> {
-    use regex::Regex;
     let url = format!("{}{}", config.dataset_metadata_url(), dataset_id);
     let response = client.get(&url)
-        .timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(15)) // Increased timeout
         .send()
         .await?;
     if response.status().is_success() {
@@ -77,8 +94,8 @@ pub async fn fetch_dataset_metadata(client: Arc<Client>, config: &Config, datase
             }
         };
         let (formats, urls_vec) = extract_resource_formats_and_urls(dataset);
-        let re = Regex::new(r"<[^>]+>").expect("Regex should compile");
-        let clean_description = re.replace_all(&dataset.notes, "").to_string();
+        // Use the pre-compiled regex for better performance
+        let clean_description = HTML_TAG_REGEX.replace_all(&dataset.notes, "").to_string();
         return Ok(Some((crate::DatasetMetadata {
             id: dataset.id.clone(),
             title: dataset.title.clone(),

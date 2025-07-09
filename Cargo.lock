@@ -853,6 +853,7 @@ dependencies = [
  "csv",
  "futures",
  "lambda_runtime",
+ "once_cell",
  "openssl",
  "regex",
  "reqwest",

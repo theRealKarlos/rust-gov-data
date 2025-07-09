@@ -23,6 +23,22 @@ impl Config {
         }
     }
 
+    pub fn validate(&self) -> Result<(), String> {
+        if self.ckan_api_base_url.trim().is_empty() {
+            return Err("CKAN API base URL must not be empty".to_string());
+        }
+        if self.bucket_name.trim().is_empty() {
+            return Err("S3 bucket name must not be empty".to_string());
+        }
+        if self.csv_file.trim().is_empty() {
+            return Err("CSV file name must not be empty".to_string());
+        }
+        if self.concurrency_limit == 0 {
+            return Err("Concurrency limit must be greater than zero".to_string());
+        }
+        Ok(())
+    }
+
     // Helper to get an environment variable or use a default value if not set.
     fn get_env_or_default(var: &str, default: &str) -> String {
         std::env::var(var).unwrap_or_else(|_| default.to_string())

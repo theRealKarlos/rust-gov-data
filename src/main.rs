@@ -1,6 +1,5 @@
 // AWS SDK and Lambda runtime imports for interacting with AWS services and Lambda events.
 use lambda_runtime::{run, service_fn, Error, LambdaEvent}; // Lambda runtime and event types
-use reqwest::Client; // HTTP client for CKAN API
 use serde::{Deserialize, Serialize}; // For (de)serialising JSON and CSV
 use std::sync::Arc; // For sharing HTTP client across tasks
 use futures::stream::StreamExt; // For concurrent async processing
@@ -14,7 +13,7 @@ mod s3_upload;
 
 use config::Config;
 use error::AppError;
-use ckan::{fetch_dataset_list, fetch_dataset_metadata};
+use ckan::{fetch_dataset_list, fetch_dataset_metadata, create_http_client};
 use csv_writer::write_csv;
 use s3_upload::upload_to_s3;
 
@@ -32,10 +31,8 @@ pub struct DatasetMetadata {
 
 async fn process_datasets(config: &Config, test_mode: bool) -> Result<(), AppError> {
     info!("Starting process_datasets: test_mode = {}", test_mode);
-    let client = Arc::new(Client::builder()
-        .pool_max_idle_per_host(5)
-        .timeout(std::time::Duration::from_secs(10))
-        .build()?);
+    // Use the optimized HTTP client with better connection pooling
+    let client = Arc::new(create_http_client()?);
     let dataset_ids = fetch_dataset_list(&client, config, test_mode).await?;
     info!("Fetched {} dataset ids", dataset_ids.len());
     let concurrency_limit = config.concurrency_limit;
@@ -95,6 +92,12 @@ async fn main() {
         .without_time()
         .with_ansi(false) // Disable colour codes for cleaner logs in CloudWatch
         .init();
+    // Validate configuration before starting
+    let config = Config::new();
+    if let Err(e) = config.validate() {
+        error!("Configuration error: {}", e);
+        std::process::exit(1);
+    }
     // Run the Lambda runtime with our handler.
     if let Err(e) = run(service_fn(function_handler)).await {
         error!("Lambda runtime error: {}", e);
