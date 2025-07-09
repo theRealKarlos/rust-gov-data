@@ -2,6 +2,9 @@
 // These tests check the parsing of CKAN API responses into strongly-typed Rust structs.
 // They help ensure that changes to the API or our code are caught early.
 
+use crate::PackageListResponse;
+use crate::PackageShowResponse;
+
 #[test]
 fn test_parse_package_list_response() {
     // Test that a valid package list response is parsed into the struct.

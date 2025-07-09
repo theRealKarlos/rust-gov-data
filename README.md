@@ -4,21 +4,21 @@
 
 ## Project Overview
 
-gov-data is a Rust project that implements an AWS Lambda function to fetch metadata about datasets from the UK Government's CKAN data portal, serialize the metadata into a CSV file, and upload the resulting CSV to an AWS S3 bucket. This enables automated, serverless collection and storage of open government data for further analysis or downstream processing.
+gov-data is a Rust project that implements an AWS Lambda function to fetch metadata about datasets from the UK Government's CKAN data portal, serialise the metadata into a CSV file, and upload the resulting CSV to an AWS S3 bucket. This enables automated, serverless collection and storage of open government data for further analyses or downstream processing.
 
 ## How it Works
 
 1. **Lambda Invocation:** The AWS Lambda function is triggered (optionally with a `test_mode` flag in the event payload).
 2. **Dataset List Fetch:** The function fetches a list of dataset IDs from the CKAN API.
-3. **Metadata Retrieval:** For each dataset ID, it fetches detailed metadata (title, description, license, organization, creation/modification dates, formats, and download URLs).
-4. **CSV Generation:** All metadata is serialized and written to a CSV file.
+3. **Metadata Retrieval:** For each dataset ID, it fetches detailed metadata (title, description, license, organisation, creation/modification dates, formats, and download URLs).
+4. **CSV Generation:** All metadata is serialised and written to a CSV file. Each download URL is written in its own column (download_url_1, download_url_2, etc.), with the number of columns determined by the dataset with the most URLs.
 5. **S3 Upload:** The CSV file is uploaded to a specified S3 bucket using the AWS SDK for Rust.
 
 ## Configuration
 
 - **S3 Bucket:** The destination S3 bucket is hardcoded as `gov-data-lucky4some.com` in the source code (`src/main.rs`).
 - **CSV File Name:** The output CSV file is named `DataGovUK_Datasets.csv`.
-- **AWS Region:** Determined by the default AWS provider chain or falls back to `us-east-1`.
+- **AWS Region:** Determined by the default AWS provider chain or falls back to `eu-west-2`.
 - **Test Mode:** You can limit the number of datasets processed by passing `{ "test_mode": true }` in the Lambda event payload. This is useful for local testing or CI.
 
 ## Usage
@@ -36,6 +36,7 @@ To run in test mode (processes only a small number of datasets):
 ### Output
 
 - The resulting CSV file is uploaded to the configured S3 bucket under the key `DataGovUK_Datasets.csv`.
+- **CSV Format:** Each row contains the dataset metadata (id, title, description, license, organisation, created, modified, format), followed by one column for each download URL. The columns are named `download_url_1`, `download_url_2`, etc., up to the maximum number of URLs found in any dataset. If a dataset has fewer URLs, the extra columns are left empty.
 
 ## Dependencies
 

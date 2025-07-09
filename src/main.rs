@@ -4,8 +4,7 @@ use aws_sdk_s3::primitives::ByteStream; // For S3 file upload
 use aws_sdk_s3::Client as S3Client; // S3 client
 use lambda_runtime::{run, service_fn, Error, LambdaEvent}; // Lambda runtime and event types
 use reqwest::Client; // HTTP client for CKAN API
-use serde::{Deserialize, Serialize}; // For (de)serializing JSON and CSV
-use serde_json::to_string; // For serializing URLs as JSON
+use serde::{Deserialize, Serialize}; // For (de)serialising JSON and CSV
 use std::fs::File; // For file operations
 use std::io::Read; // For reading file contents
 use std::sync::Arc; // For sharing HTTP client across tasks
@@ -72,13 +71,13 @@ struct DatasetMetadata {
     created: String,
     modified: String,
     format: String,
-    download_urls: String,
+    // download_urls: String, // Removed, handled separately
 }
 
 // Helper to extract resource formats as a comma-separated string and URLs as a JSON array string from the CKAN API response.
 // CKAN 'resources' is an array of objects, each with fields like 'url' and 'format'.
 // This function collects all 'format' fields and all 'url' fields from the resource objects.
-fn extract_resource_formats_and_urls(result: &serde_json::Value) -> (String, String) {
+fn extract_resource_formats_and_urls(result: &serde_json::Value) -> (String, Vec<String>) {
     let resources = result.get("resources").and_then(|v| v.as_array());
     // Collect all 'format' fields as a comma-separated string.
     let formats = resources
@@ -89,17 +88,16 @@ fn extract_resource_formats_and_urls(result: &serde_json::Value) -> (String, Str
                 .join(", ")
         })
         .unwrap_or_default();
-    // Collect all 'url' fields as a Vec<&str>.
+    // Collect all 'url' fields as a Vec<String>.
     let urls = resources
         .map(|arr| {
             arr.iter()
                 .filter_map(|res| res.get("url").and_then(|u| u.as_str()))
-                .collect::<Vec<&str>>()
+                .map(|s| s.to_string())
+                .collect::<Vec<String>>()
         })
         .unwrap_or_default();
-    // Serialize the URLs as a JSON array string for storage in the CSV.
-    let urls_json = to_string(&urls).unwrap_or("[]".to_string());
-    (formats, urls_json)
+    (formats, urls)
 }
 
 // Helper to truncate a vector for test mode, limiting the number of items processed.
@@ -127,7 +125,7 @@ async fn fetch_dataset_list(client: &Client, test_mode: bool) -> Result<Vec<Stri
 
 // Fetch detailed metadata for a single dataset from the CKAN API.
 // Uses a strongly-typed struct for the response and cleans up HTML in descriptions.
-async fn fetch_dataset_metadata(client: Arc<Client>, dataset_id: String) -> Result<Option<DatasetMetadata>, Error> {
+async fn fetch_dataset_metadata(client: Arc<Client>, dataset_id: String) -> Result<Option<(DatasetMetadata, Vec<String>)>, Error> {
     use regex::Regex; // For cleaning HTML tags from descriptions
     let url = format!("{}{}", get_dataset_metadata_url(), dataset_id);
     let response = client.get(&url)
@@ -144,12 +142,12 @@ async fn fetch_dataset_metadata(client: Arc<Client>, dataset_id: String) -> Resu
                 return Ok(None);
             }
         };
-        let (formats, urls_json) = extract_resource_formats_and_urls(result);
+        let (formats, urls_vec) = extract_resource_formats_and_urls(result);
         let notes = result["notes"].as_str().unwrap_or("");
         // Remove HTML tags from the description for cleaner output.
         let re = Regex::new(r"<[^>]+>").expect("Regex should compile");
         let clean_description = re.replace_all(notes, "").to_string();
-        return Ok(Some(DatasetMetadata {
+        return Ok(Some((DatasetMetadata {
             id: result["id"].as_str().unwrap_or_default().to_string(),
             title: result["title"].as_str().unwrap_or_default().to_string(),
             description: clean_description,
@@ -158,8 +156,7 @@ async fn fetch_dataset_metadata(client: Arc<Client>, dataset_id: String) -> Resu
             created: result["metadata_created"].as_str().unwrap_or_default().to_string(),
             modified: result["metadata_modified"].as_str().unwrap_or_default().to_string(),
             format: formats,
-            download_urls: urls_json,
-        }));
+        }, urls_vec)));
     }
     error!("Failed to fetch metadata for {}", dataset_id);
     Ok(None)
@@ -197,20 +194,51 @@ async fn process_datasets(test_mode: bool) -> Result<(), Error> {
         .collect::<Vec<_>>()
         .await;
     info!("Finished concurrent metadata fetch for all datasets.");
-    let dataset_metadata: Vec<DatasetMetadata> = metadata_results.into_iter()
-        .filter_map(|res| match res {
-            Ok(Some(data)) => Some(data),
-            _ => None,
-        })
-        .collect();
+    // Separate metadata and urls, and find max number of URLs
+    let mut dataset_metadata: Vec<(DatasetMetadata, Vec<String>)> = Vec::new();
+    let mut max_urls = 0;
+    for res in metadata_results.into_iter() {
+        if let Ok(Some((meta, urls))) = res {
+            max_urls = max_urls.max(urls.len());
+            dataset_metadata.push((meta, urls));
+        }
+    }
     info!("Writing {} datasets to CSV...", dataset_metadata.len());
     let csv_file = get_csv_file();
     // Write the dataset metadata to a CSV file. Use error context for easier debugging.
     {
         let file = File::create(&csv_file).context("Failed to create CSV file")?;
         let mut wtr = csv::Writer::from_writer(file);
-        for dataset in &dataset_metadata {
-            wtr.serialize(dataset).context("Failed to serialize dataset to CSV")?;
+        // Write header
+        let mut header = vec![
+            "id".to_string(), "title".to_string(), "description".to_string(), "license".to_string(),
+            "organization".to_string(), "created".to_string(), "modified".to_string(), "format".to_string()
+        ];
+        for i in 1..=max_urls {
+            header.push(format!("download_url_{}", i));
+        }
+        wtr.write_record(&header)?;
+        // Write rows
+        for (meta, urls) in &dataset_metadata {
+            let mut row = vec![
+                meta.id.clone(),
+                meta.title.clone(),
+                meta.description.clone(),
+                meta.license.clone(),
+                meta.organization.clone(),
+                meta.created.clone(),
+                meta.modified.clone(),
+                meta.format.clone(),
+            ];
+            // Add each url, pad with empty if fewer than max_urls
+            for i in 0..max_urls {
+                if i < urls.len() {
+                    row.push(urls[i].clone());
+                } else {
+                    row.push(String::new());
+                }
+            }
+            wtr.write_record(&row)?;
         }
         wtr.flush().context("Failed to flush CSV writer")?;
     }
@@ -263,7 +291,7 @@ async fn function_handler(event: LambdaEvent<serde_json::Value>) -> Result<serde
 // Main function for the binary. Sets up logging and runs the Lambda runtime.
 #[tokio::main]
 async fn main() {
-    // Initialize tracing subscriber for logging. This works for both local and Lambda environments.
+    // Initialise tracing subscriber for logging. This works for both local and Lambda environments.
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
         .with_target(false)
