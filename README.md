@@ -180,11 +180,49 @@ You can test your Lambda function in two ways:
 - **AWS Console:**
   - Go to the Lambda Console, select your function, and create a test event (e.g., `{ "test_mode": true }`).
 - **AWS CLI:**
-  - Run:
-    ```bash
-    aws lambda invoke --function-name <your-function-name> --payload '{"test_mode":true}' response.json
+  - Run (PowerShell, multi-line, no base64 required):
+    ```powershell
+    aws lambda invoke `
+      --cli-binary-format raw-in-base64-out `
+      --function-name "gov-data" `
+      --payload '{"test_mode":true}' `
+      response.json
     ```
-  - The output will be saved to `response.json`.
+    - Replace `gov-data` with your actual Lambda function name if different.
+    - The output will be saved to `response.json`.
+
+### Viewing Recent Logs for the Lambda (last 5 minutes)
+
+After invoking your Lambda, you can fetch logs from the last 5 minutes using the AWS CLI:
+
+**Bash (Linux/macOS):**
+
+```bash
+aws logs filter-log-events \
+  --log-group-name "/aws/lambda/gov-data" \
+  --start-time $(date -d "5 minutes ago" +%s)000 \
+  --query 'events[*].{timestamp:timestamp,message:message}' \
+  --output table
+```
+
+**PowerShell (Windows):**
+
+```powershell
+$startTime = [DateTimeOffset]::UtcNow.AddMinutes(-5).ToUnixTimeMilliseconds()
+aws logs filter-log-events `
+  --log-group-name "/aws/lambda/gov-data" `
+  --start-time $startTime `
+  --query 'events[*].{timestamp:timestamp,message:message}' `
+  --output table
+```
+
+Or, to simply tail the last 5 minutes of logs (if you have AWS CLI v2):
+
+```bash
+aws logs tail /aws/lambda/gov-data --since 5m
+```
+
+Replace `gov-data` with your actual Lambda function name if different.
 
 ### 5. View Logs
 

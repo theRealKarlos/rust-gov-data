@@ -296,6 +296,7 @@ async fn main() {
         .with_max_level(tracing::Level::INFO)
         .with_target(false)
         .without_time()
+        .with_ansi(false) // Disable colour codes for cleaner logs in CloudWatch
         .init();
     // Run the Lambda runtime with our handler.
     if let Err(e) = run(service_fn(function_handler)).await {
