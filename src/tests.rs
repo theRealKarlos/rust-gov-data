@@ -4,6 +4,7 @@
 
 use crate::ckan::PackageListResponse;
 use crate::ckan::PackageShowResponse;
+use crate::config::Config;
 
 #[test]
 fn test_parse_package_list_response() {
@@ -43,4 +44,33 @@ fn test_parse_package_show_response_some() {
     assert_eq!(result.id, "abc");
     assert_eq!(result.title, "Test");
     // Additional checks can be added for other fields if needed.
+}
+
+#[test]
+fn test_config_validation_valid() {
+    // Test that a valid configuration passes validation.
+    let config = Config::new();
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_config_validation_empty_bucket() {
+    // Test that empty bucket name fails validation with appropriate error.
+    let mut config = Config::new();
+    config.bucket_name = "".to_string();
+    let result = config.validate();
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(error_msg.contains("S3 bucket name must not be empty"));
+}
+
+#[test]
+fn test_config_validation_zero_concurrency() {
+    // Test that zero concurrency limit fails validation.
+    let mut config = Config::new();
+    config.concurrency_limit = 0;
+    let result = config.validate();
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(error_msg.contains("Concurrency limit must be greater than zero"));
 } 
