@@ -109,7 +109,7 @@ async fn main() {
     // Validate configuration before starting
     let config = Config::new();
     if let Err(e) = config.validate() {
-        error!("Configuration error: {}", e);
+        error!("Configuration validation failed: {}", e);
         std::process::exit(1);
     }
     // Run the Lambda runtime with our handler.

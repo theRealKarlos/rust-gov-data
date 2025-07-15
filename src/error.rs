@@ -19,6 +19,9 @@ pub enum AppError {
     /// Serde JSON error (parsing CKAN responses)
     #[error("Serde JSON error: {0}")]
     SerdeJson(#[from] serde_json::Error),
+    /// Configuration validation error (invalid or missing config values)
+    #[error("Configuration error: {0}")]
+    Config(String),
     /// Any other error (string message)
     #[error("Other error: {0}")]
     Other(String),

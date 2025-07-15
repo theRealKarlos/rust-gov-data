@@ -31,18 +31,18 @@ impl Config {
     }
 
     /// Validate the configuration, returning an error if any required value is missing or invalid.
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), crate::error::AppError> {
         if self.ckan_api_base_url.trim().is_empty() {
-            return Err("CKAN API base URL must not be empty".to_string());
+            return Err(crate::error::AppError::Config("CKAN API base URL must not be empty".to_string()));
         }
         if self.bucket_name.trim().is_empty() {
-            return Err("S3 bucket name must not be empty".to_string());
+            return Err(crate::error::AppError::Config("S3 bucket name must not be empty".to_string()));
         }
         if self.csv_file.trim().is_empty() {
-            return Err("CSV file name must not be empty".to_string());
+            return Err(crate::error::AppError::Config("CSV file name must not be empty".to_string()));
         }
         if self.concurrency_limit == 0 {
-            return Err("Concurrency limit must be greater than zero".to_string());
+            return Err(crate::error::AppError::Config("Concurrency limit must be greater than zero".to_string()));
         }
         Ok(())
     }
