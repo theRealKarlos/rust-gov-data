@@ -46,13 +46,13 @@ src/
 
 The project uses a **centralised configuration system** with environment variable overrides:
 
-| Environment Variable | Default Value               | Description                  |
-| -------------------- | --------------------------- | ---------------------------- |
-| `BUCKET_NAME`        | `gov-data-lucky4some.com`   | S3 bucket for CSV upload     |
-| `CSV_FILE`           | `DataGovUK_Datasets.csv`    | Output CSV filename          |
-| `CKAN_API_BASE_URL`  | `https://data.gov.uk/api/3` | CKAN API base URL            |
-| `CONCURRENCY_LIMIT`  | `10`                        | Max concurrent HTTP requests |
-| `AWS_REGION`         | `eu-west-2`                 | AWS region (fallback)        |
+| Environment Variable | Default Value                                       | Description                  |
+| -------------------- | --------------------------------------------------- | ---------------------------- |
+| `BUCKET_NAME`        | `gov-data-lucky4some.com`                           | S3 bucket for CSV upload     |
+| `CSV_FILE`           | `DataGovUK_Datasets.csv`                            | Output CSV filename          |
+| `CKAN_API_BASE_URL`  | `https://ckan.publishing.service.gov.uk/api/action` | CKAN API base URL            |
+| `CONCURRENCY_LIMIT`  | `10`                                                | Max concurrent HTTP requests |
+| `AWS_REGION`         | `eu-west-2`                                         | AWS region (fallback)        |
 
 ### Configuration Validation
 
@@ -62,7 +62,7 @@ The configuration is validated at startup with helpful error messages for missin
 
 ### Lambda Event Example
 
-To run in test mode (processes only a small number of datasets):
+To run in test mode (processes only the first 20 datasets for faster testing):
 
 ```json
 {
@@ -87,6 +87,11 @@ To run in test mode (processes only a small number of datasets):
 - [regex](https://docs.rs/regex/) (HTML cleaning with compiled patterns)
 - [once_cell](https://docs.rs/once_cell/) (Static initialisation)
 - [thiserror](https://docs.rs/thiserror/) (Error handling)
+- [anyhow](https://docs.rs/anyhow/) (Additional error handling utilities)
+- [futures](https://docs.rs/futures/) (Stream processing and async utilities)
+- [tracing](https://docs.rs/tracing/) (Structured logging)
+- [tracing-subscriber](https://docs.rs/tracing-subscriber/) (Logging configuration)
+- [openssl](https://docs.rs/openssl/) (SSL/TLS support with vendored feature)
 
 ## Prerequisites
 
@@ -295,11 +300,13 @@ All errors are logged with appropriate context for debugging and monitoring.
 
 The project includes several **performance optimisations** for the Lambda environment:
 
-- **HTTP Connection Pooling** - Reuses connections for multiple requests
-- **Compiled Regex Patterns** - Pre-compiled patterns for HTML cleaning
-- **Optimised Buffering** - Efficient memory usage for S3 uploads
-- **Concurrency Control** - Configurable limits to prevent resource exhaustion
-- **Static Initialisation** - One-time setup of expensive resources
+- **HTTP Connection Pooling** - Maintains up to 10 idle connections per host with 90-second timeout
+- **Compiled Regex Patterns** - Pre-compiled patterns for HTML cleaning using `once_cell`
+- **Optimised Buffering** - 8KB buffer size for efficient S3 uploads and memory usage
+- **Concurrency Control** - Configurable limits (default: 10) to prevent resource exhaustion
+- **Static Initialisation** - One-time setup of expensive resources like HTTP clients
+- **Timeout Configuration** - 15-second HTTP timeouts with 10-second connection timeouts
+- **TCP Keepalive** - 60-second keepalive intervals for persistent connections
 
 ## Code Quality
 
