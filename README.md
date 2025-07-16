@@ -1,5 +1,7 @@
 # gov-data: UK Government Dataset Metadata to AWS S3
 
+[![Deploy Rust Lambda to AWS](https://github.com/your-username/gov-data/actions/workflows/deploy.yml/badge.svg)](https://github.com/your-username/gov-data/actions/workflows/deploy.yml)
+
 > **Note:** This is a **lab project** intended for experimentation, learning, and demonstration purposes. It is not designed or maintained for production use. Use at your own risk.
 
 ## Project Overview
@@ -284,6 +286,78 @@ Replace `gov-data` with your actual Lambda function name if different.
 | View logs    | AWS CloudWatch Logs                               |
 
 Read more about deploying your lambda function in [the Cargo Lambda documentation](https://www.cargo-lambda.info/commands/deploy.html).
+
+## Automated CI/CD Pipeline
+
+This project includes a comprehensive **GitHub Actions CI/CD pipeline** that automates testing, building, deployment, and verification. The pipeline ensures code quality and reliable deployments to AWS Lambda.
+
+### Pipeline Overview
+
+The CI/CD pipeline consists of four sequential jobs:
+
+1. **Quality Checks** - Unit tests, linting, formatting, and security audit
+2. **Build Lambda** - Cross-compilation for AWS Lambda environment
+3. **Deploy to AWS** - Automated deployment with environment configuration
+4. **Post-Deploy Test** - Live Lambda function verification
+
+### Branch-Based Deployment
+
+| Branch        | Environment | Lambda Function    | Auto-Deploy   |
+| ------------- | ----------- | ------------------ | ------------- |
+| `main`        | Production  | `gov-data-prod`    | ✅ Yes        |
+| `development` | Staging     | `gov-data-staging` | ✅ Yes        |
+| `feature/*`   | None        | N/A                | ❌ Tests only |
+
+### AWS OIDC Authentication
+
+This pipeline uses **AWS OpenID Connect (OIDC)** for secure authentication without long-lived access keys.
+
+**Required Setup:**
+
+- AWS IAM role: `arn:aws:iam::379673441375:role/github-actions-role`
+- **No AWS access keys or secrets required** - authentication handled automatically
+
+**Optional GitHub Variables** (uses defaults if not set):
+
+```
+AWS_REGION                   # AWS region (default: eu-west-2)
+LAMBDA_FUNCTION_NAME_PROD    # Production function name
+LAMBDA_FUNCTION_NAME_STAGING # Staging function name
+S3_BUCKET_PROD              # Production S3 bucket
+S3_BUCKET_STAGING           # Staging S3 bucket
+```
+
+### Pipeline Features
+
+- **🧪 Comprehensive Testing** - Unit tests, linting, and security scanning
+- **🔒 Security First** - Dependency vulnerability scanning with `cargo audit`
+- **⚡ Performance Optimized** - Caching and parallel execution
+- **🚀 Automated Deployment** - Zero-touch deployment to AWS Lambda
+- **✅ Post-Deploy Verification** - Live function testing with CloudWatch logs
+- **📊 Full Observability** - Detailed logging and deployment tracking
+
+### Usage
+
+**Trigger Production Deployment:**
+
+```bash
+git push origin main
+```
+
+**Trigger Staging Deployment:**
+
+```bash
+git push origin development
+```
+
+**Run Tests Only (Pull Requests):**
+
+```bash
+# Create PR to main or development branch
+# Pipeline runs quality checks but skips deployment
+```
+
+For detailed CI/CD documentation, see [CICD.md](CICD.md).
 
 ## Error Handling
 

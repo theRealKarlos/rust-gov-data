@@ -1,0 +1,223 @@
+name: Deploy Rust Lambda to AWS
+
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+    branches: [main, development]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+# Required for AWS OIDC authentication
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  quality-checks:
+    name: Quality Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Run unit tests
+        run: cargo test --verbose
+
+      - name: Run Clippy linting
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Check code formatting
+        run: cargo fmt --all -- --check
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Run security audit
+        run: cargo audit
+
+  build:
+    name: Build Lambda Function
+    runs-on: ubuntu-latest
+    needs: quality-checks
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/development')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/
+          key: ${{ runner.os }}-cargo-lambda-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-lambda-
+            ${{ runner.os }}-cargo-
+
+      - name: Install cargo-lambda
+        run: pip install cargo-lambda
+
+      - name: Build Lambda function
+        run: cargo lambda build --compiler cross --release
+
+      - name: Package artifacts
+        run: |
+          mkdir -p artifacts
+          cp target/lambda/gov-data/bootstrap artifacts/
+          ls -la artifacts/
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: lambda-artifacts
+          path: artifacts/
+          retention-days: 1
+
+  deploy:
+    name: Deploy to AWS Lambda
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/development')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::379673441375:role/github-actions-role
+          role-session-name: GitHubActions-Deploy
+          aws-region: ${{ vars.AWS_REGION || 'eu-west-2' }}
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: lambda-artifacts
+          path: artifacts/
+
+      - name: Set environment variables
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "LAMBDA_FUNCTION_NAME=${{ vars.LAMBDA_FUNCTION_NAME_PROD || 'gov-data-prod' }}" >> $GITHUB_ENV
+            echo "S3_BUCKET_NAME=${{ vars.S3_BUCKET_PROD || 'gov-data-lucky4some.com' }}" >> $GITHUB_ENV
+            echo "ENVIRONMENT=production" >> $GITHUB_ENV
+          else
+            echo "LAMBDA_FUNCTION_NAME=${{ vars.LAMBDA_FUNCTION_NAME_STAGING || 'gov-data-staging' }}" >> $GITHUB_ENV
+            echo "S3_BUCKET_NAME=${{ vars.S3_BUCKET_STAGING || 'gov-data-staging-lucky4some.com' }}" >> $GITHUB_ENV
+            echo "ENVIRONMENT=staging" >> $GITHUB_ENV
+          fi
+
+      - name: Install cargo-lambda
+        run: pip install cargo-lambda
+
+      - name: Deploy Lambda function
+        run: |
+          cargo lambda deploy \
+            --region ${{ vars.AWS_REGION || 'eu-west-2' }} \
+            --env-var BUCKET_NAME=${{ env.S3_BUCKET_NAME }} \
+            --env-var CKAN_API_BASE_URL=https://ckan.publishing.service.gov.uk/api/action \
+            --env-var CONCURRENCY_LIMIT=${{ github.ref == 'refs/heads/main' && '20' || '10' }} \
+            --env-var ENVIRONMENT=${{ env.ENVIRONMENT }} \
+            --env-var GIT_COMMIT=${{ github.sha }} \
+            ${{ env.LAMBDA_FUNCTION_NAME }}
+
+      - name: Output deployment info
+        run: |
+          echo "Deployed Lambda function: ${{ env.LAMBDA_FUNCTION_NAME }}"
+          echo "Environment: ${{ env.ENVIRONMENT }}"
+          echo "Region: ${{ vars.AWS_REGION || 'eu-west-2' }}"
+          echo "Git commit: ${{ github.sha }}"
+
+  post-deploy-test:
+    name: Post-Deployment Test
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/development')
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::379673441375:role/github-actions-role
+          role-session-name: GitHubActions-PostDeployTest
+          aws-region: ${{ vars.AWS_REGION || 'eu-west-2' }}
+
+      - name: Set environment variables
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "LAMBDA_FUNCTION_NAME=${{ vars.LAMBDA_FUNCTION_NAME_PROD || 'gov-data-prod' }}" >> $GITHUB_ENV
+          else
+            echo "LAMBDA_FUNCTION_NAME=${{ vars.LAMBDA_FUNCTION_NAME_STAGING || 'gov-data-staging' }}" >> $GITHUB_ENV
+          fi
+
+      - name: Create test payload
+        run: |
+          echo '{"test_mode": true}' > test-payload.json
+          cat test-payload.json
+
+      - name: Invoke Lambda function
+        run: |
+          echo "Invoking Lambda function: ${{ env.LAMBDA_FUNCTION_NAME }}"
+          aws lambda invoke \
+            --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
+            --payload file://test-payload.json \
+            --cli-binary-format raw-in-base64-out \
+            response.json
+
+          echo "Lambda response:"
+          cat response.json
+
+      - name: Validate response
+        run: |
+          # Check if response contains success status
+          if grep -q '"status":"success"' response.json; then
+            echo "✅ Lambda function executed successfully"
+          else
+            echo "❌ Lambda function did not return success status"
+            cat response.json
+            exit 1
+          fi
+
+      - name: Retrieve CloudWatch logs
+        run: |
+          echo "Retrieving recent CloudWatch logs..."
+          LOG_GROUP="/aws/lambda/${{ env.LAMBDA_FUNCTION_NAME }}"
+
+          # Get logs from the last 5 minutes
+          START_TIME=$(date -d "5 minutes ago" +%s)000
+
+          aws logs filter-log-events \
+            --log-group-name "$LOG_GROUP" \
+            --start-time $START_TIME \
+            --query 'events[*].{timestamp:timestamp,message:message}' \
+            --output table || echo "No recent logs found or log group doesn't exist yet"
+
+      - name: Test summary
+        run: |
+          echo "🎉 Post-deployment test completed successfully!"
+          echo "Function: ${{ env.LAMBDA_FUNCTION_NAME }}"
+          echo "Test mode: enabled (processed limited datasets)"
+          echo "Response: success"
