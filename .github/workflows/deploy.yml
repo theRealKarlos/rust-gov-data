@@ -297,6 +297,7 @@ jobs:
     needs: deploy
     # Only run for pushes to main or development branches (not PRs)
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/development')
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
     steps:
       # Configure AWS credentials using OIDC for secure access to Lambda and CloudWatch
       # Uses the same IAM role as deployment for consistency
