@@ -171,7 +171,7 @@ jobs:
       # Artifacts are stored temporarily and shared between jobs
       # retention-days: 1 keeps artifacts for 24 hours only
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: lambda-artifacts
           path: artifacts/
@@ -197,6 +197,9 @@ jobs:
       # Configure AWS credentials using OIDC (no long-lived access keys needed)
       # Uses the github-actions-role IAM role for secure, temporary access
       # Role session name helps identify the deployment in AWS CloudTrail
+      # NOTE: The AWS account ID in the role ARN is safe to expose as the role
+      # is tightly scoped with minimal permissions and OIDC trust policy restrictions.
+      # You can parameterize this using GitHub variables if preferred: ${{ vars.AWS_ROLE_ARN }}
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -207,7 +210,7 @@ jobs:
       # Download the Lambda artifacts built in the previous job
       # These artifacts contain the cross-compiled bootstrap binary
       - name: Download build artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: lambda-artifacts
           path: artifacts/
@@ -219,11 +222,11 @@ jobs:
         run: |
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
             echo "LAMBDA_FUNCTION_NAME=${{ vars.LAMBDA_FUNCTION_NAME_PROD || 'gov-data-prod' }}" >> $GITHUB_ENV
-            echo "S3_BUCKET_NAME=${{ vars.S3_BUCKET_PROD || 'gov-data-lucky4some.com' }}" >> $GITHUB_ENV
+            echo "S3_BUCKET_NAME=${{ vars.S3_BUCKET_PROD || 'your-s3-bucket-prod' }}" >> $GITHUB_ENV
             echo "ENVIRONMENT=production" >> $GITHUB_ENV
           else
             echo "LAMBDA_FUNCTION_NAME=${{ vars.LAMBDA_FUNCTION_NAME_STAGING || 'gov-data-staging' }}" >> $GITHUB_ENV
-            echo "S3_BUCKET_NAME=${{ vars.S3_BUCKET_STAGING || 'gov-data-staging-lucky4some.com' }}" >> $GITHUB_ENV
+            echo "S3_BUCKET_NAME=${{ vars.S3_BUCKET_STAGING || 'your-s3-bucket-staging' }}" >> $GITHUB_ENV
             echo "ENVIRONMENT=staging" >> $GITHUB_ENV
           fi
 
@@ -271,6 +274,10 @@ jobs:
       # Configure AWS credentials using OIDC for secure access to Lambda and CloudWatch
       # Uses the same IAM role as deployment for consistency
       # Session name helps identify post-deployment testing in AWS CloudTrail
+      # NOTE: The AWS account ID in the role ARN is safe to expose as the role
+      # is tightly scoped with minimal permissions and OIDC trust policy restrictions.
+      # You can parameterise this using GitHub variables if preferred: ${{ vars.AWS_ROLE_ARN }}
+      # or split into Account ID and Role to provide a multi account deployment strategy
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
