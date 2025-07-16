@@ -149,20 +149,15 @@ Read more about invoking the function in [the Cargo Lambda documentation for the
 
 To deploy the project to AWS Lambda, follow these steps:
 
-### Prerequisite: Docker Desktop
+### Prerequisites for Local Development
 
-**Docker Desktop is required** to run the cross-compiler for AWS Lambda builds. Please ensure Docker Desktop is installed and running before building for Lambda.
+**For Windows users building locally:**
 
+- Docker Desktop is required for cross-compilation when building on Windows
 - [Download Docker Desktop](https://www.docker.com/products/docker-desktop/)
-- After installation, start Docker Desktop and ensure it is running in the background.
-- The cross-compilation process uses the Docker image `ghcr.io/cross-rs/x86_64-unknown-linux-gnu:0.2.5` as the build environment. Docker will automatically pull this image if it is not already available locally.
-- To ensure the image is available before building, you can manually pull it with:
+- Visual Studio 2022 with C++ development tools (see Troubleshooting section)
 
-  ```bash
-  docker pull ghcr.io/cross-rs/x86_64-unknown-linux-gnu:0.2.5
-  ```
-
-- The cross compiler is used to avoid issues compiling the OpenSSL dependency (and other native dependencies) for AWS Lambda. This ensures all dependencies are built in an environment compatible with Lambda, preventing common build and runtime errors.
+**Note:** The GitHub Actions CI/CD pipeline handles deployment automatically and does not require Docker or cross-compilation as it runs on Ubuntu runners.
 
 ### Important: S3 Bucket Region and IAM Permissions
 
@@ -190,13 +185,19 @@ To deploy the project to AWS Lambda, follow these steps:
 
 ### 1. Build for AWS Lambda
 
-First, build your project for the AWS Lambda target using the cross compiler:
+**For local deployment from Windows:**
 
 ```bash
 cargo lambda build --compiler cross --release
 ```
 
-This command uses Docker and the cross compiler to build your function for the Lambda environment and prepares it for deployment.
+**For local deployment from Linux/macOS or CI/CD:**
+
+```bash
+cargo lambda build --release
+```
+
+The cross compiler is only needed when building on Windows for Lambda deployment. The GitHub Actions CI/CD pipeline uses Ubuntu runners and builds directly without cross-compilation.
 
 ### 2. Deploy to AWS Lambda
 

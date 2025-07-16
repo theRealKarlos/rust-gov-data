@@ -151,9 +151,8 @@ jobs:
       - name: Install cargo-lambda
         run: pip install cargo-lambda
 
-      # Cross-compile the Rust code for AWS Lambda environment
-      # --compiler cross uses Docker for cross-compilation to x86_64-unknown-linux-gnu
-      # --release builds optimized binary for production use
+      # Compile the Rust code for AWS Lambda environment
+      # --release builds optimised binary for production use
       # This ensures compatibility with Lambda's Amazon Linux environment
       - name: Build Lambda function
         run: cargo lambda build --release
@@ -230,24 +229,50 @@ jobs:
             echo "ENVIRONMENT=staging" >> $GITHUB_ENV
           fi
 
-      # Install cargo-lambda CLI tool for deployment
-      # This tool handles Lambda function creation and updates
-      - name: Install cargo-lambda
-        run: pip install cargo-lambda
+      # Package the Lambda function for deployment
+      # Create a deployment package from the pre-built bootstrap binary
+      - name: Package Lambda function
+        run: |
+          cd artifacts
+          zip -r ../lambda-deployment.zip bootstrap
+          ls -la ../lambda-deployment.zip
 
-      # Deploy the Lambda function with environment-specific configuration
+      # Deploy the Lambda function using AWS CLI
+      # Uses the pre-built bootstrap binary from the build job
       # Sets environment variables that the Lambda function will use at runtime
-      # Includes S3 bucket, API URLs, concurrency limits, and deployment tracking
       - name: Deploy Lambda function
         run: |
-          cargo lambda deploy \
-            --region ${{ vars.AWS_REGION || 'eu-west-2' }} \
-            --env-var BUCKET_NAME=${{ env.S3_BUCKET_NAME }} \
-            --env-var CKAN_API_BASE_URL=https://ckan.publishing.service.gov.uk/api/action \
-            --env-var CONCURRENCY_LIMIT=${{ github.ref == 'refs/heads/main' && '20' || '10' }} \
-            --env-var ENVIRONMENT=${{ env.ENVIRONMENT }} \
-            --env-var GIT_COMMIT=${{ github.sha }} \
-            ${{ env.LAMBDA_FUNCTION_NAME }}
+          # Try to update existing function first
+          if aws lambda update-function-code \
+            --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
+            --zip-file fileb://lambda-deployment.zip \
+            --region ${{ vars.AWS_REGION || 'eu-west-2' }} 2>/dev/null; then
+            echo "Updated existing Lambda function"
+          else
+            echo "Function doesn't exist, creating new one"
+            aws lambda create-function \
+              --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
+              --runtime provided.al2023 \
+              --role arn:aws:iam::379673441375:role/lambda-execution-role \
+              --handler bootstrap \
+              --zip-file fileb://lambda-deployment.zip \
+              --region ${{ vars.AWS_REGION || 'eu-west-2' }}
+          fi
+
+      # Update Lambda function environment variables
+      # Sets runtime configuration for the deployed function
+      - name: Update function configuration
+        run: |
+          aws lambda update-function-configuration \
+            --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
+            --environment Variables="{
+              BUCKET_NAME=${{ env.S3_BUCKET_NAME }},
+              CKAN_API_BASE_URL=https://ckan.publishing.service.gov.uk/api/action,
+              CONCURRENCY_LIMIT=${{ github.ref == 'refs/heads/main' && '20' || '10' }},
+              ENVIRONMENT=${{ env.ENVIRONMENT }},
+              GIT_COMMIT=${{ github.sha }}
+            }" \
+            --region ${{ vars.AWS_REGION || 'eu-west-2' }}
 
       # Output deployment information for logging and debugging
       # This helps track which version was deployed where and when
