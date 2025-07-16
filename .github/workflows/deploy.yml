@@ -259,6 +259,11 @@ jobs:
               --handler bootstrap \
               --zip-file fileb://lambda-deployment.zip \
               --region ${{ vars.AWS_REGION || 'eu-west-1' }}
+            
+            echo "Waiting for Lambda function to become active..."
+            aws lambda wait function-active \
+              --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
+              --region ${{ vars.AWS_REGION || 'eu-west-1' }}
           fi
 
       # Update Lambda function environment variables
