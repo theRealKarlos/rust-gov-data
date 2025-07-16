@@ -162,26 +162,94 @@ To deploy the project to AWS Lambda, follow these steps:
 ### Important: S3 Bucket Region and IAM Permissions
 
 - **Region:** Your Lambda function must be deployed in the **same AWS region** as your S3 bucket. If your bucket is in `eu-west-1`, deploy your Lambda to `eu-west-1`.
-- **IAM Permissions:** The IAM role used by your Lambda function must have permissions to access your S3 bucket. At a minimum, it needs:
 
-  - `s3:PutObject`
-  - `s3:GetObject`
-  - `s3:ListBucket`
+#### Lambda Execution Role Permissions
 
-  Example policy:
+The IAM role used by your Lambda function must have permissions to access your S3 bucket and write logs. At a minimum, it needs:
 
-  ```json
-  {
-    "Effect": "Allow",
-    "Action": ["s3:PutObject", "s3:GetObject", "s3:ListBucket"],
-    "Resource": [
-      "arn:aws:s3:::your-s3-bucket-name",
-      "arn:aws:s3:::your-s3-bucket-name/*"
-    ]
-  }
-  ```
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:ListBucket"],
+      "Resource": [
+        "arn:aws:s3:::your-s3-bucket-name",
+        "arn:aws:s3:::your-s3-bucket-name/*"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:aws:logs:*:*:*"
+    }
+  ]
+}
+```
 
-- You can add this as an inline policy to your Lambda's execution role in the AWS IAM Console.
+#### GitHub Actions Deployment Role Permissions
+
+The IAM role used by GitHub Actions for deployment (`github-actions-role`) must have permissions to create and manage Lambda functions:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "lambda:CreateFunction",
+        "lambda:UpdateFunctionCode",
+        "lambda:UpdateFunctionConfiguration",
+        "lambda:InvokeFunction",
+        "lambda:GetFunction",
+        "lambda:GetFunctionConfiguration"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["iam:PassRole"],
+      "Resource": "arn:aws:iam::*:role/cargo-lambda-role-*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["logs:FilterLogEvents", "logs:DescribeLogGroups"],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+**Trust Policy for GitHub Actions Role:**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::YOUR_ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          "token.actions.githubusercontent.com:sub": "repo:YOUR_USERNAME/YOUR_REPO:ref:refs/heads/main"
+        }
+      }
+    }
+  ]
+}
+```
+
+You can add these policies to the respective IAM roles in the AWS IAM Console.
 
 ### 1. Build for AWS Lambda
 
