@@ -1,6 +1,4 @@
-# gov-data: UK Government Dataset Metadata to AWS S3
-
-[![Deploy Rust Lambda to AWS](https://github.com/your-username/gov-data/actions/workflows/deploy.yml/badge.svg)](https://github.com/your-username/gov-data/actions/workflows/deploy.yml)
+# Gov-Data: UK Government Dataset Metadata to AWS S3
 
 > **Note:** This is a **lab project** intended for experimentation, learning, and demonstration purposes. It is not designed or maintained for production use. Use at your own risk.
 
@@ -84,8 +82,8 @@ To run in test mode (processes only the first 20 datasets for faster testing):
 - [lambda_runtime](https://docs.rs/lambda_runtime/) (AWS Lambda runtime)
 - [reqwest](https://docs.rs/reqwest/) (HTTP client with connection pooling)
 - [tokio](https://docs.rs/tokio/) (Async runtime)
-- [csv](https://docs.rs/csv/) (CSV serialization)
-- [serde, serde_json](https://serde.rs/) (JSON serialization with type safety)
+- [csv](https://docs.rs/csv/) (CSV serialisation)
+- [serde, serde_json](https://serde.rs/) (JSON serialisation with type safety)
 - [regex](https://docs.rs/regex/) (HTML cleaning with compiled patterns)
 - [once_cell](https://docs.rs/once_cell/) (Static initialisation)
 - [thiserror](https://docs.rs/thiserror/) (Error handling)
@@ -331,7 +329,7 @@ S3_BUCKET_STAGING           # Staging S3 bucket
 
 - **🧪 Comprehensive Testing** - Unit tests, linting, and security scanning
 - **🔒 Security First** - Dependency vulnerability scanning with `cargo audit`
-- **⚡ Performance Optimized** - Caching and parallel execution
+- **⚡ Performance Optimised** - Caching and parallel execution
 - **🚀 Automated Deployment** - Zero-touch deployment to AWS Lambda
 - **✅ Post-Deploy Verification** - Live function testing with CloudWatch logs
 - **📊 Full Observability** - Detailed logging and deployment tracking
