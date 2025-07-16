@@ -30,7 +30,7 @@ pub fn write_csv(
         "format".to_string(),
     ];
     for i in 1..=max_urls {
-        header.push(format!("download_url_{}", i));
+        header.push(format!("download_url_{i}"));
     }
     wtr.write_record(&header)?;
     // Write each row, padding with empty strings if there are fewer URLs than max_urls.

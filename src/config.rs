@@ -65,7 +65,7 @@ impl Config {
         let filename = Self::get_env_or_default("CSV_FILE", "DataGovUK_Datasets.csv");
         // If running in Lambda, always use /tmp/
         if std::env::var("LAMBDA_TASK_ROOT").is_ok() {
-            format!("/tmp/{}", filename)
+            format!("/tmp/{filename}")
         } else {
             filename
         }
