@@ -188,6 +188,7 @@ jobs:
     needs: build
     # Only run for pushes to main or development branches (not PRs)
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/development')
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
     steps:
       # Check out the repository code for deployment
       - name: Checkout code
@@ -204,7 +205,7 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::379673441375:role/github-actions-role
           role-session-name: GitHubActions-Deploy
-          aws-region: ${{ vars.AWS_REGION || 'eu-west-2' }}
+          aws-region: ${{ env.AWS_REGION }}
 
       # Download the Lambda artifacts built in the previous job
       # These artifacts contain the cross-compiled bootstrap binary
@@ -215,17 +216,18 @@ jobs:
           path: artifacts/
 
       # Set environment-specific variables based on the branch being deployed
+      # Uses GitHub environment variables for production configuration
       # main branch = production environment with higher concurrency
       # development branch = staging environment with lower concurrency
       - name: Set environment variables
         run: |
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            echo "LAMBDA_FUNCTION_NAME=${{ vars.LAMBDA_FUNCTION_NAME_PROD || 'gov-data-prod' }}" >> $GITHUB_ENV
-            echo "S3_BUCKET_NAME=${{ vars.S3_BUCKET_PROD || 'your-s3-bucket-prod' }}" >> $GITHUB_ENV
+            echo "LAMBDA_FUNCTION_NAME=${{ env.LAMBDA_FUNCTION_NAME_PROD }}" >> $GITHUB_ENV
+            echo "S3_BUCKET_NAME=${{ env.S3_BUCKET_PROD }}" >> $GITHUB_ENV
             echo "ENVIRONMENT=production" >> $GITHUB_ENV
           else
-            echo "LAMBDA_FUNCTION_NAME=${{ vars.LAMBDA_FUNCTION_NAME_STAGING || 'gov-data-staging' }}" >> $GITHUB_ENV
-            echo "S3_BUCKET_NAME=${{ vars.S3_BUCKET_STAGING || 'your-s3-bucket-staging' }}" >> $GITHUB_ENV
+            echo "LAMBDA_FUNCTION_NAME=${{ env.LAMBDA_FUNCTION_NAME_STAGING || 'gov-data-staging' }}" >> $GITHUB_ENV
+            echo "S3_BUCKET_NAME=${{ env.S3_BUCKET_STAGING || 'your-s3-bucket-staging' }}" >> $GITHUB_ENV
             echo "ENVIRONMENT=staging" >> $GITHUB_ENV
           fi
 
@@ -246,17 +248,17 @@ jobs:
           if aws lambda update-function-code \
             --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
             --zip-file fileb://lambda-deployment.zip \
-            --region ${{ vars.AWS_REGION || 'eu-west-2' }} 2>/dev/null; then
+            --region ${{ env.AWS_REGION }} 2>/dev/null; then
             echo "Updated existing Lambda function"
           else
             echo "Function doesn't exist, creating new one"
             aws lambda create-function \
               --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
               --runtime provided.al2023 \
-              --role arn:aws:iam::379673441375:role/lambda-execution-role \
+              --role arn:aws:iam::379673441375:role/cargo-lambda-role-7a5c58c0-b85f-4b42-b2e0-a2438c7a951b \
               --handler bootstrap \
               --zip-file fileb://lambda-deployment.zip \
-              --region ${{ vars.AWS_REGION || 'eu-west-2' }}
+              --region ${{ env.AWS_REGION }}
           fi
 
       # Update Lambda function environment variables
@@ -272,7 +274,7 @@ jobs:
               ENVIRONMENT=${{ env.ENVIRONMENT }},
               GIT_COMMIT=${{ github.sha }}
             }" \
-            --region ${{ vars.AWS_REGION || 'eu-west-2' }}
+            --region ${{ env.AWS_REGION }}
 
       # Output deployment information for logging and debugging
       # This helps track which version was deployed where and when
@@ -280,7 +282,7 @@ jobs:
         run: |
           echo "Deployed Lambda function: ${{ env.LAMBDA_FUNCTION_NAME }}"
           echo "Environment: ${{ env.ENVIRONMENT }}"
-          echo "Region: ${{ vars.AWS_REGION || 'eu-west-2' }}"
+          echo "Region: ${{ env.AWS_REGION }}"
           echo "Git commit: ${{ github.sha }}"
 
   # =============================================================================
@@ -308,7 +310,7 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::379673441375:role/github-actions-role
           role-session-name: GitHubActions-PostDeployTest
-          aws-region: ${{ vars.AWS_REGION || 'eu-west-2' }}
+          aws-region: ${{ env.AWS_REGION }}
 
       # Set the Lambda function name based on the deployment environment
       # This ensures we test the correct function that was just deployed
@@ -316,9 +318,9 @@ jobs:
       - name: Set environment variables
         run: |
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            echo "LAMBDA_FUNCTION_NAME=${{ vars.LAMBDA_FUNCTION_NAME_PROD || 'gov-data-prod' }}" >> $GITHUB_ENV
+            echo "LAMBDA_FUNCTION_NAME=${{ env.LAMBDA_FUNCTION_NAME_PROD }}" >> $GITHUB_ENV
           else
-            echo "LAMBDA_FUNCTION_NAME=${{ vars.LAMBDA_FUNCTION_NAME_STAGING || 'gov-data-staging' }}" >> $GITHUB_ENV
+            echo "LAMBDA_FUNCTION_NAME=${{ env.LAMBDA_FUNCTION_NAME_STAGING || 'gov-data-staging' }}" >> $GITHUB_ENV
           fi
 
       # Create a test payload with test_mode enabled
