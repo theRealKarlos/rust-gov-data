@@ -156,7 +156,7 @@ jobs:
       # --release builds optimized binary for production use
       # This ensures compatibility with Lambda's Amazon Linux environment
       - name: Build Lambda function
-        run: cargo lambda build --compiler cross --release
+        run: cargo lambda build --release
 
       # Package the built Lambda function for deployment
       # Creates artifacts directory and copies the bootstrap binary
