@@ -50,7 +50,7 @@ The project uses a **centralised configuration system** with environment variabl
 
 | Environment Variable | Default Value                                       | Description                  |
 | -------------------- | --------------------------------------------------- | ---------------------------- |
-| `BUCKET_NAME`        | `gov-data-lucky4some.com`                           | S3 bucket for CSV upload     |
+| `BUCKET_NAME`        | `your-s3-bucket-name`                               | S3 bucket for CSV upload     |
 | `CSV_FILE`           | `DataGovUK_Datasets.csv`                            | Output CSV filename          |
 | `CKAN_API_BASE_URL`  | `https://ckan.publishing.service.gov.uk/api/action` | CKAN API base URL            |
 | `CONCURRENCY_LIMIT`  | `10`                                                | Max concurrent HTTP requests |
@@ -182,8 +182,8 @@ To deploy the project to AWS Lambda, follow these steps:
     "Effect": "Allow",
     "Action": ["s3:PutObject", "s3:GetObject", "s3:ListBucket"],
     "Resource": [
-      "arn:aws:s3:::gov-data-lucky4some.com",
-      "arn:aws:s3:::gov-data-lucky4some.com/*"
+      "arn:aws:s3:::your-s3-bucket-name",
+      "arn:aws:s3:::your-s3-bucket-name/*"
     ]
   }
   ```
@@ -314,7 +314,7 @@ This pipeline uses **AWS OpenID Connect (OIDC)** for secure authentication witho
 
 **Required Setup:**
 
-- AWS IAM role: `arn:aws:iam::379673441375:role/github-actions-role`
+- AWS IAM role: `arn:aws:iam::123456789012:role/github-actions-role`
 - **No AWS access keys or secrets required** - authentication handled automatically
 
 **Optional GitHub Variables** (uses defaults if not set):
@@ -358,6 +358,59 @@ git push origin development
 ```
 
 For detailed CI/CD documentation, see [CICD.md](CICD.md).
+
+## Troubleshooting
+
+### Windows Build Issues - Missing C++ Build Tools
+
+If you encounter build errors on Windows related to missing C++ build tools, CMake, or Visual Studio generators, you may see errors like:
+
+```
+CMake Error: Generator Visual Studio 17 2022 could not find any instance of Visual Studio.
+```
+
+or
+
+```
+fatal error C1083: Cannot open include file: 'stdatomic.h': No such file or directory
+```
+
+**Solution:**
+
+Install Visual Studio 2022 with C++ development tools:
+
+1. **Download Visual Studio 2022 Build Tools or Community Edition:**
+
+   - Build Tools: https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022
+   - Community (full IDE): https://visualstudio.microsoft.com/vs/community/
+
+2. **During installation, ensure you select:**
+
+   - "Desktop development with C++" workload
+   - This includes the MSVC compiler, Windows SDK, and CMake tools
+
+3. **Alternative using winget:**
+
+   ```cmd
+   winget install Microsoft.VisualStudio.2022.BuildTools
+   ```
+
+4. **After installation, restart your terminal and try building again:**
+   ```bash
+   cargo build
+   ```
+
+**Why this happens:**
+
+- The AWS SDK dependencies (particularly `aws-lc-sys`) require native C++ compilation
+- CMake looks for Visual Studio generators to compile native code
+- Missing or outdated Visual Studio installations cause these build failures
+
+### Other Common Issues
+
+- **Docker not running:** Ensure Docker Desktop is running when using `cargo lambda build --compiler cross`
+- **AWS credentials:** Verify AWS credentials are configured for deployment
+- **Region mismatch:** Ensure Lambda and S3 bucket are in the same AWS region
 
 ## Error Handling
 
