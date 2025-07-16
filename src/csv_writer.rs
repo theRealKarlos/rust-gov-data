@@ -8,16 +8,26 @@ use std::fs::File;
 /// This function ensures the CSV is easy to use in Excel or other tools.
 pub fn write_csv(
     config: &Config,
-    dataset_metadata: &[(DatasetMetadata, Vec<String>)]
+    dataset_metadata: &[(DatasetMetadata, Vec<String>)],
 ) -> Result<(), AppError> {
     // Find the maximum number of download URLs in any dataset for column generation.
-    let max_urls = dataset_metadata.iter().map(|(_, urls)| urls.len()).max().unwrap_or(0);
+    let max_urls = dataset_metadata
+        .iter()
+        .map(|(_, urls)| urls.len())
+        .max()
+        .unwrap_or(0);
     let file = File::create(&config.csv_file)?;
     let mut wtr = csv::Writer::from_writer(file);
     // Write the CSV header, including download_url_1, download_url_2, ...
     let mut header = vec![
-        "id".to_string(), "title".to_string(), "description".to_string(), "license".to_string(),
-        "organization".to_string(), "created".to_string(), "modified".to_string(), "format".to_string()
+        "id".to_string(),
+        "title".to_string(),
+        "description".to_string(),
+        "license".to_string(),
+        "organization".to_string(),
+        "created".to_string(),
+        "modified".to_string(),
+        "format".to_string(),
     ];
     for i in 1..=max_urls {
         header.push(format!("download_url_{}", i));
@@ -46,4 +56,4 @@ pub fn write_csv(
     }
     wtr.flush()?;
     Ok(())
-} 
+}

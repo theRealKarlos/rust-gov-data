@@ -1,10 +1,10 @@
 use crate::config::Config;
 use crate::error::AppError;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use reqwest::Client;
 use serde::Deserialize;
 use std::sync::Arc;
-use once_cell::sync::Lazy;
-use regex::Regex;
 
 // Constants for HTTP client and API configuration
 /// Maximum number of datasets to process in test mode for faster testing
@@ -21,9 +21,8 @@ const POOL_IDLE_TIMEOUT_SECS: u64 = 90;
 const MAX_IDLE_CONNECTIONS_PER_HOST: usize = 10;
 
 // Compile regex once and reuse it for HTML tag removal for performance.
-static HTML_TAG_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"<[^>]+>").expect("HTML tag regex should compile")
-});
+static HTML_TAG_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"<[^>]+>").expect("HTML tag regex should compile"));
 
 /// Response from the CKAN package_list API.
 #[derive(Debug, Deserialize)]
@@ -79,11 +78,15 @@ pub struct CkanResource {
 /// Extracts resource formats as a comma-separated string and URLs as a Vec<String> from a CKAN dataset.
 /// This is used to flatten the resource info for CSV output.
 pub fn extract_resource_formats_and_urls(dataset: &CkanDataset) -> (String, Vec<String>) {
-    let formats = dataset.resources.iter()
+    let formats = dataset
+        .resources
+        .iter()
         .filter_map(|res| res.format.as_deref())
         .collect::<Vec<&str>>()
         .join(", ");
-    let urls = dataset.resources.iter()
+    let urls = dataset
+        .resources
+        .iter()
         .filter_map(|res| res.url.clone())
         .collect::<Vec<String>>();
     (formats, urls)
@@ -102,14 +105,23 @@ pub fn create_http_client() -> Result<Client, AppError> {
 
 /// Fetches the list of dataset IDs from the CKAN API.
 /// Returns a truncated list if test_mode is enabled.
-pub async fn fetch_dataset_list(client: &Client, config: &Config, test_mode: bool) -> Result<Vec<String>, AppError> {
-    let response = client.get(&config.dataset_list_url())
+pub async fn fetch_dataset_list(
+    client: &Client,
+    config: &Config,
+    test_mode: bool,
+) -> Result<Vec<String>, AppError> {
+    let response = client
+        .get(config.dataset_list_url())
         .timeout(std::time::Duration::from_secs(HTTP_TIMEOUT_SECS))
         .send()
         .await?;
     let package_list: PackageListResponse = response.json().await?;
     Ok(if test_mode {
-        package_list.result.into_iter().take(TEST_MODE_DATASET_LIMIT).collect()
+        package_list
+            .result
+            .into_iter()
+            .take(TEST_MODE_DATASET_LIMIT)
+            .collect()
     } else {
         package_list.result
     })
@@ -117,9 +129,14 @@ pub async fn fetch_dataset_list(client: &Client, config: &Config, test_mode: boo
 
 /// Fetches detailed metadata for a single dataset from the CKAN API.
 /// Cleans up HTML in the description and returns the metadata and download URLs.
-pub async fn fetch_dataset_metadata(client: Arc<Client>, config: &Config, dataset_id: String) -> Result<Option<(crate::DatasetMetadata, Vec<String>)>, AppError> {
+pub async fn fetch_dataset_metadata(
+    client: Arc<Client>,
+    config: &Config,
+    dataset_id: String,
+) -> Result<Option<(crate::DatasetMetadata, Vec<String>)>, AppError> {
     let url = format!("{}{}", config.dataset_metadata_url(), dataset_id);
-    let response = client.get(&url)
+    let response = client
+        .get(&url)
         .timeout(std::time::Duration::from_secs(HTTP_TIMEOUT_SECS))
         .send()
         .await?;
@@ -134,16 +151,19 @@ pub async fn fetch_dataset_metadata(client: Arc<Client>, config: &Config, datase
         let (formats, urls_vec) = extract_resource_formats_and_urls(dataset);
         // Use the pre-compiled regex for better performance
         let clean_description = HTML_TAG_REGEX.replace_all(&dataset.notes, "").to_string();
-        return Ok(Some((crate::DatasetMetadata {
-            id: dataset.id.clone(),
-            title: dataset.title.clone(),
-            description: clean_description,
-            license: dataset.license_title.clone(),
-            organization: dataset.organization.title.clone(),
-            created: dataset.metadata_created.clone(),
-            modified: dataset.metadata_modified.clone(),
-            format: formats,
-        }, urls_vec)));
+        return Ok(Some((
+            crate::DatasetMetadata {
+                id: dataset.id.clone(),
+                title: dataset.title.clone(),
+                description: clean_description,
+                license: dataset.license_title.clone(),
+                organization: dataset.organization.title.clone(),
+                created: dataset.metadata_created.clone(),
+                modified: dataset.metadata_modified.clone(),
+                format: formats,
+            },
+            urls_vec,
+        )));
     }
     Ok(None)
-} 
+}

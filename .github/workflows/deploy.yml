@@ -1,33 +1,76 @@
+# =============================================================================
+# GitHub Actions CI/CD Pipeline for Rust Lambda Deployment
+# =============================================================================
+# This workflow automates the complete deployment process for a Rust-based
+# AWS Lambda function, including quality checks, cross-compilation, deployment,
+# and post-deployment verification.
+#
+# Pipeline Flow:
+# 1. Quality Checks - Tests, linting, formatting, security audit
+# 2. Build Lambda - Cross-compilation for AWS Lambda environment
+# 3. Deploy to AWS - Automated deployment with environment configuration
+# 4. Post-Deploy Test - Live Lambda function verification
+# =============================================================================
+
 name: Deploy Rust Lambda to AWS
 
+# =============================================================================
+# Workflow Triggers
+# =============================================================================
+# The workflow is triggered on:
+# - Push to main branch (deploys to production)
+# - Push to development branch (deploys to staging)
+# - Pull requests to main/development (runs tests only, no deployment)
 on:
   push:
     branches: [main, development]
   pull_request:
     branches: [main, development]
 
+# =============================================================================
+# Global Environment Variables
+# =============================================================================
+# These environment variables are available to all jobs in the workflow
 env:
-  CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
+  CARGO_TERM_COLOR: always # Enable colored output for Cargo commands
+  RUST_BACKTRACE: 1 # Enable detailed error backtraces for debugging
 
-# Required for AWS OIDC authentication
+# =============================================================================
+# Workflow Permissions
+# =============================================================================
+# Required permissions for AWS OIDC authentication
+# - id-token: write - Allows the workflow to request OIDC tokens
+# - contents: read - Allows reading repository contents
 permissions:
   id-token: write
   contents: read
 
 jobs:
+  # =============================================================================
+  # Job 1: Quality Checks
+  # =============================================================================
+  # This job runs on all pushes and pull requests to ensure code quality.
+  # It performs comprehensive testing, linting, formatting, and security checks.
+  # All subsequent jobs depend on this job passing successfully.
   quality-checks:
     name: Quality Checks
     runs-on: ubuntu-latest
     steps:
+      # Check out the repository code to the runner
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Install Rust toolchain with required components for quality checks
+      # - rustfmt: Code formatting tool
+      # - clippy: Rust linter for catching common mistakes and improving code
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
+      # Cache Cargo dependencies to speed up subsequent runs
+      # This caches the registry, git dependencies, and build artifacts
+      # Key is based on OS and Cargo.lock hash for cache invalidation
       - name: Cache Cargo dependencies
         uses: actions/cache@v3
         with:
@@ -39,33 +82,58 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      # Run all unit tests with verbose output for detailed feedback
+      # This ensures all functionality works as expected
       - name: Run unit tests
         run: cargo test --verbose
 
+      # Run Clippy linter to catch common mistakes and enforce best practices
+      # -D warnings treats all warnings as errors, ensuring high code quality
+      # --all-targets includes tests, examples, and benchmarks
+      # --all-features enables all feature flags for comprehensive checking
       - name: Run Clippy linting
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+      # Check that all code is properly formatted according to Rust standards
+      # --check flag makes it fail if formatting is incorrect without fixing
       - name: Check code formatting
         run: cargo fmt --all -- --check
 
+      # Install cargo-audit tool for security vulnerability scanning
+      # This tool checks dependencies against the RustSec advisory database
       - name: Install cargo-audit
         run: cargo install cargo-audit
 
+      # Scan all dependencies for known security vulnerabilities
+      # This prevents deploying code with known security issues
       - name: Run security audit
         run: cargo audit
 
+  # =============================================================================
+  # Job 2: Build Lambda Function
+  # =============================================================================
+  # This job cross-compiles the Rust code for AWS Lambda environment.
+  # It only runs after quality checks pass and only for pushes to main/development.
+  # Uses Docker-based cross-compilation to ensure Lambda compatibility.
   build:
     name: Build Lambda Function
     runs-on: ubuntu-latest
     needs: quality-checks
+    # Only run for pushes to main or development branches (not PRs)
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/development')
     steps:
+      # Check out the repository code for building
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Install Rust toolchain for cross-compilation
+      # Uses stable channel for reliable builds
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      # Cache Cargo dependencies with Lambda-specific cache key
+      # This speeds up builds by reusing previously downloaded dependencies
+      # Uses different cache key than quality-checks to avoid conflicts
       - name: Cache Cargo dependencies
         uses: actions/cache@v3
         with:
@@ -78,18 +146,30 @@ jobs:
             ${{ runner.os }}-cargo-lambda-
             ${{ runner.os }}-cargo-
 
+      # Install cargo-lambda CLI tool for Lambda-specific builds
+      # This tool handles cross-compilation and Lambda packaging
       - name: Install cargo-lambda
         run: pip install cargo-lambda
 
+      # Cross-compile the Rust code for AWS Lambda environment
+      # --compiler cross uses Docker for cross-compilation to x86_64-unknown-linux-gnu
+      # --release builds optimized binary for production use
+      # This ensures compatibility with Lambda's Amazon Linux environment
       - name: Build Lambda function
         run: cargo lambda build --compiler cross --release
 
+      # Package the built Lambda function for deployment
+      # Creates artifacts directory and copies the bootstrap binary
+      # The bootstrap file is the Lambda runtime executable
       - name: Package artifacts
         run: |
           mkdir -p artifacts
           cp target/lambda/gov-data/bootstrap artifacts/
           ls -la artifacts/
 
+      # Upload build artifacts for use in deployment job
+      # Artifacts are stored temporarily and shared between jobs
+      # retention-days: 1 keeps artifacts for 24 hours only
       - name: Upload build artifacts
         uses: actions/upload-artifact@v3
         with:
@@ -97,15 +177,26 @@ jobs:
           path: artifacts/
           retention-days: 1
 
+  # =============================================================================
+  # Job 3: Deploy to AWS Lambda
+  # =============================================================================
+  # This job deploys the built Lambda function to AWS.
+  # It runs after successful build and uses OIDC for secure AWS authentication.
+  # Supports branch-based deployment (main=production, development=staging).
   deploy:
     name: Deploy to AWS Lambda
     runs-on: ubuntu-latest
     needs: build
+    # Only run for pushes to main or development branches (not PRs)
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/development')
     steps:
+      # Check out the repository code for deployment
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Configure AWS credentials using OIDC (no long-lived access keys needed)
+      # Uses the github-actions-role IAM role for secure, temporary access
+      # Role session name helps identify the deployment in AWS CloudTrail
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -113,12 +204,17 @@ jobs:
           role-session-name: GitHubActions-Deploy
           aws-region: ${{ vars.AWS_REGION || 'eu-west-2' }}
 
+      # Download the Lambda artifacts built in the previous job
+      # These artifacts contain the cross-compiled bootstrap binary
       - name: Download build artifacts
         uses: actions/download-artifact@v3
         with:
           name: lambda-artifacts
           path: artifacts/
 
+      # Set environment-specific variables based on the branch being deployed
+      # main branch = production environment with higher concurrency
+      # development branch = staging environment with lower concurrency
       - name: Set environment variables
         run: |
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
@@ -131,9 +227,14 @@ jobs:
             echo "ENVIRONMENT=staging" >> $GITHUB_ENV
           fi
 
+      # Install cargo-lambda CLI tool for deployment
+      # This tool handles Lambda function creation and updates
       - name: Install cargo-lambda
         run: pip install cargo-lambda
 
+      # Deploy the Lambda function with environment-specific configuration
+      # Sets environment variables that the Lambda function will use at runtime
+      # Includes S3 bucket, API URLs, concurrency limits, and deployment tracking
       - name: Deploy Lambda function
         run: |
           cargo lambda deploy \
@@ -145,6 +246,8 @@ jobs:
             --env-var GIT_COMMIT=${{ github.sha }} \
             ${{ env.LAMBDA_FUNCTION_NAME }}
 
+      # Output deployment information for logging and debugging
+      # This helps track which version was deployed where and when
       - name: Output deployment info
         run: |
           echo "Deployed Lambda function: ${{ env.LAMBDA_FUNCTION_NAME }}"
@@ -152,12 +255,22 @@ jobs:
           echo "Region: ${{ vars.AWS_REGION || 'eu-west-2' }}"
           echo "Git commit: ${{ github.sha }}"
 
+  # =============================================================================
+  # Job 4: Post-Deployment Test
+  # =============================================================================
+  # This job verifies that the deployed Lambda function works correctly.
+  # It runs after successful deployment and performs live testing with validation.
+  # Includes response verification and CloudWatch log analysis for debugging.
   post-deploy-test:
     name: Post-Deployment Test
     runs-on: ubuntu-latest
     needs: deploy
+    # Only run for pushes to main or development branches (not PRs)
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/development')
     steps:
+      # Configure AWS credentials using OIDC for secure access to Lambda and CloudWatch
+      # Uses the same IAM role as deployment for consistency
+      # Session name helps identify post-deployment testing in AWS CloudTrail
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -165,6 +278,9 @@ jobs:
           role-session-name: GitHubActions-PostDeployTest
           aws-region: ${{ vars.AWS_REGION || 'eu-west-2' }}
 
+      # Set the Lambda function name based on the deployment environment
+      # This ensures we test the correct function that was just deployed
+      # Uses the same logic as the deployment job for consistency
       - name: Set environment variables
         run: |
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
@@ -173,11 +289,18 @@ jobs:
             echo "LAMBDA_FUNCTION_NAME=${{ vars.LAMBDA_FUNCTION_NAME_STAGING || 'gov-data-staging' }}" >> $GITHUB_ENV
           fi
 
+      # Create a test payload with test_mode enabled
+      # test_mode limits processing to 20 datasets for faster testing
+      # This prevents long-running tests that could timeout or consume resources
       - name: Create test payload
         run: |
           echo '{"test_mode": true}' > test-payload.json
           cat test-payload.json
 
+      # Invoke the deployed Lambda function with the test payload
+      # Uses AWS CLI to call the function synchronously and capture response
+      # --cli-binary-format handles JSON payload encoding properly
+      # Response is saved to response.json for validation
       - name: Invoke Lambda function
         run: |
           echo "Invoking Lambda function: ${{ env.LAMBDA_FUNCTION_NAME }}"
@@ -190,6 +313,10 @@ jobs:
           echo "Lambda response:"
           cat response.json
 
+      # Validate that the Lambda function executed successfully
+      # Checks for the expected success status in the JSON response
+      # Fails the pipeline if the function didn't return success
+      # Provides debugging information by displaying the actual response
       - name: Validate response
         run: |
           # Check if response contains success status
@@ -201,6 +328,10 @@ jobs:
             exit 1
           fi
 
+      # Retrieve recent CloudWatch logs for debugging and verification
+      # Gets logs from the last 5 minutes to capture the test execution
+      # Displays logs in table format for easy reading
+      # Continues even if log retrieval fails (non-critical for pipeline success)
       - name: Retrieve CloudWatch logs
         run: |
           echo "Retrieving recent CloudWatch logs..."
@@ -215,6 +346,9 @@ jobs:
             --query 'events[*].{timestamp:timestamp,message:message}' \
             --output table || echo "No recent logs found or log group doesn't exist yet"
 
+      # Provide a summary of the successful post-deployment test
+      # Confirms that the Lambda function is working correctly in the deployed environment
+      # Includes key information about the test execution for audit trail
       - name: Test summary
         run: |
           echo "🎉 Post-deployment test completed successfully!"

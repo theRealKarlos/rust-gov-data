@@ -73,4 +73,4 @@ fn test_config_validation_zero_concurrency() {
     assert!(result.is_err());
     let error_msg = result.unwrap_err().to_string();
     assert!(error_msg.contains("Concurrency limit must be greater than zero"));
-} 
+}

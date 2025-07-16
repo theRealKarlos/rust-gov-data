@@ -1,21 +1,21 @@
 // AWS SDK and Lambda runtime imports for interacting with AWS services and Lambda events.
 // This file contains the main entry point and workflow orchestration for the Lambda function.
+use futures::stream::StreamExt; // For concurrent async processing
 use lambda_runtime::{run, service_fn, Error, LambdaEvent}; // Lambda runtime and event types
 use serde::{Deserialize, Serialize}; // For (de)serialising JSON and CSV
 use std::sync::Arc; // For sharing HTTP client across tasks
-use futures::stream::StreamExt; // For concurrent async processing
-use tracing::{info, error}; // For structured logging
+use tracing::{error, info}; // For structured logging
 
-mod config;
-mod error;
 mod ckan;
+mod config;
 mod csv_writer;
+mod error;
 mod s3_upload;
 
+use ckan::{create_http_client, fetch_dataset_list, fetch_dataset_metadata};
 use config::Config;
-use error::AppError;
-use ckan::{fetch_dataset_list, fetch_dataset_metadata, create_http_client};
 use csv_writer::write_csv;
+use error::AppError;
 use s3_upload::upload_to_s3;
 
 /// Struct for storing dataset metadata in CSV and S3.
@@ -69,12 +69,8 @@ async fn process_datasets(config: &Config, test_mode: bool) -> Result<(), AppErr
         .collect::<Vec<_>>()
         .await;
     info!("Finished concurrent metadata fetch for all datasets.");
-    let mut dataset_metadata: Vec<(DatasetMetadata, Vec<String>)> = Vec::new();
-    for res in metadata_results.into_iter() {
-        if let Ok(Some((meta, urls))) = res {
-            dataset_metadata.push((meta, urls));
-        }
-    }
+    let dataset_metadata: Vec<(DatasetMetadata, Vec<String>)> =
+        metadata_results.into_iter().flatten().flatten().collect();
     info!("Writing {} datasets to CSV...", dataset_metadata.len());
     write_csv(config, &dataset_metadata)?;
     info!("CSV file written: {}", config.csv_file);
@@ -85,14 +81,24 @@ async fn process_datasets(config: &Config, test_mode: bool) -> Result<(), AppErr
 
 /// Lambda handler function. This is the entry point for AWS Lambda.
 /// It can also be called locally for testing.
-async fn function_handler(event: LambdaEvent<serde_json::Value>) -> Result<serde_json::Value, Error> {
+async fn function_handler(
+    event: LambdaEvent<serde_json::Value>,
+) -> Result<serde_json::Value, Error> {
     // Check for test mode in the event payload or environment variable.
-    let test_mode = event.payload.get("test_mode")
+    let test_mode = event
+        .payload
+        .get("test_mode")
         .and_then(|v| v.as_bool())
-        .unwrap_or_else(|| std::env::var("TEST_MODE").map(|v| v == "1" || v.to_lowercase() == "true").unwrap_or(false));
+        .unwrap_or_else(|| {
+            std::env::var("TEST_MODE")
+                .map(|v| v == "1" || v.to_lowercase() == "true")
+                .unwrap_or(false)
+        });
     info!("Lambda handler invoked. test_mode = {}", test_mode);
     let config = Config::new();
-    process_datasets(&config, test_mode).await.map_err(|e| Error::from(e.to_string()))?;
+    process_datasets(&config, test_mode)
+        .await
+        .map_err(|e| Error::from(e.to_string()))?;
     Ok(serde_json::json!({ "status": "success" }))
 }
 

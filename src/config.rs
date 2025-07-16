@@ -19,8 +19,8 @@ impl Config {
     pub fn new() -> Self {
         Self {
             ckan_api_base_url: Self::get_env_or_default(
-                "CKAN_API_BASE_URL", 
-                "https://ckan.publishing.service.gov.uk/api/action"
+                "CKAN_API_BASE_URL",
+                "https://ckan.publishing.service.gov.uk/api/action",
             ),
             bucket_name: Self::get_env_or_default("BUCKET_NAME", "gov-data-lucky4some.com"),
             csv_file: Self::get_csv_file(),
@@ -33,16 +33,24 @@ impl Config {
     /// Validate the configuration, returning an error if any required value is missing or invalid.
     pub fn validate(&self) -> Result<(), crate::error::AppError> {
         if self.ckan_api_base_url.trim().is_empty() {
-            return Err(crate::error::AppError::Config("CKAN API base URL must not be empty".to_string()));
+            return Err(crate::error::AppError::Config(
+                "CKAN API base URL must not be empty".to_string(),
+            ));
         }
         if self.bucket_name.trim().is_empty() {
-            return Err(crate::error::AppError::Config("S3 bucket name must not be empty".to_string()));
+            return Err(crate::error::AppError::Config(
+                "S3 bucket name must not be empty".to_string(),
+            ));
         }
         if self.csv_file.trim().is_empty() {
-            return Err(crate::error::AppError::Config("CSV file name must not be empty".to_string()));
+            return Err(crate::error::AppError::Config(
+                "CSV file name must not be empty".to_string(),
+            ));
         }
         if self.concurrency_limit == 0 {
-            return Err(crate::error::AppError::Config("Concurrency limit must be greater than zero".to_string()));
+            return Err(crate::error::AppError::Config(
+                "Concurrency limit must be greater than zero".to_string(),
+            ));
         }
         Ok(())
     }
@@ -72,4 +80,4 @@ impl Config {
     pub fn dataset_metadata_url(&self) -> String {
         format!("{}/package_show?id=", self.ckan_api_base_url)
     }
-} 
+}
