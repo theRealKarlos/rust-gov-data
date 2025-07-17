@@ -266,20 +266,51 @@ jobs:
               --region ${{ vars.AWS_REGION || 'eu-west-1' }}
           fi
 
-      # Update Lambda function environment variables
+      # Update Lambda function environment variables with retry logic
       # Sets runtime configuration for the deployed function
+      # Includes retry mechanism to handle ResourceConflictException when updates are in progress
       - name: Update function configuration
         run: |
-          aws lambda update-function-configuration \
-            --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
-            --environment Variables="{
-              BUCKET_NAME=${{ env.S3_BUCKET_NAME }},
-              CKAN_API_BASE_URL=https://ckan.publishing.service.gov.uk/api/action,
-              CONCURRENCY_LIMIT=${{ github.ref == 'refs/heads/main' && '20' || '10' }},
-              ENVIRONMENT=${{ env.ENVIRONMENT }},
-              GIT_COMMIT=${{ github.sha }}
-            }" \
-            --region ${{ vars.AWS_REGION || 'eu-west-1' }}
+          # Function to retry AWS Lambda operations with exponential backoff
+          retry_lambda_update() {
+            local max_attempts=5
+            local delay=2
+            local attempt=1
+            
+            while [ $attempt -le $max_attempts ]; do
+              echo "Attempt $attempt of $max_attempts: Updating Lambda function configuration..."
+              
+              if aws lambda update-function-configuration \
+                --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
+                --environment Variables="{
+                  BUCKET_NAME=${{ env.S3_BUCKET_NAME }},
+                  CKAN_API_BASE_URL=https://ckan.publishing.service.gov.uk/api/action,
+                  CONCURRENCY_LIMIT=${{ github.ref == 'refs/heads/main' && '20' || '10' }},
+                  ENVIRONMENT=${{ env.ENVIRONMENT }},
+                  GIT_COMMIT=${{ github.sha }}
+                }" \
+                --region ${{ vars.AWS_REGION || 'eu-west-1' }}; then
+                echo "✅ Lambda function configuration updated successfully"
+                return 0
+              else
+                local exit_code=$?
+                echo "❌ Attempt $attempt failed with exit code $exit_code"
+                
+                if [ $attempt -eq $max_attempts ]; then
+                  echo "🚨 All retry attempts exhausted. Configuration update failed."
+                  return $exit_code
+                fi
+                
+                echo "⏳ Waiting ${delay} seconds before retry..."
+                sleep $delay
+                delay=$((delay * 2))  # Exponential backoff
+                attempt=$((attempt + 1))
+              fi
+            done
+          }
+
+          # Execute the retry function
+          retry_lambda_update
 
       # Output deployment information for logging and debugging
       # This helps track which version was deployed where and when
