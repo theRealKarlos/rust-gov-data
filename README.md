@@ -97,25 +97,30 @@ To run in test mode (processes only the first 20 datasets for faster testing):
 
 - [Rust](https://www.rust-lang.org/tools/install)
 - [Cargo Lambda](https://www.cargo-lambda.info/guide/installation.html)
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (for cross-compilation)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (for local Windows development only)
 
 ## Building
 
-To build the project for AWS Lambda (production), you must use the cross compiler with Docker:
+**For local development on Windows:**
 
 ```bash
 cargo lambda build --compiler cross --release
 ```
 
-- This command uses Docker and the cross compiler to ensure compatibility with the Lambda environment.
-- Make sure Docker Desktop is running before building.
-- The cross compiler uses the Docker image `ghcr.io/cross-rs/x86_64-unknown-linux-gnu:0.2.5`.
+- This command uses Docker and cross-compilation to ensure compatibility with the Lambda environment
+- Make sure Docker Desktop is running before building
+- Required due to differences between Windows and Lambda runtime environments
 
-For local development (not for Lambda), you can use:
+**For local development on Linux/macOS:**
 
 ```bash
-cargo lambda build
+cargo lambda build --release
 ```
+
+- Direct compilation works since Linux/macOS are compatible with Lambda's runtime environment
+- No Docker or cross-compilation needed
+
+**Note:** The GitHub Actions CI/CD pipeline uses Ubuntu runners and compiles directly with `cargo lambda build --release` - no cross-compilation required.
 
 Read more about building your lambda function in [the Cargo Lambda documentation](https://www.cargo-lambda.info/commands/build.html).
 
@@ -363,7 +368,7 @@ This project includes a comprehensive **GitHub Actions CI/CD pipeline** that aut
 The CI/CD pipeline consists of four sequential jobs:
 
 1. **Quality Checks** - Unit tests, linting, formatting, and security audit
-2. **Build Lambda** - Cross-compilation for AWS Lambda environment
+2. **Build Lambda** - Native compilation for AWS Lambda environment
 3. **Deploy to AWS** - Automated deployment with environment configuration
 4. **Post-Deploy Test** - Live Lambda function verification
 
