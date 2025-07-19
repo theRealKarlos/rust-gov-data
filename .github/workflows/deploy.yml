@@ -72,7 +72,7 @@ jobs:
       # This caches the registry, git dependencies, and build artifacts
       # Key is based on OS and Cargo.lock hash for cache invalidation
       - name: Cache Cargo dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
