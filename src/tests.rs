@@ -2,9 +2,9 @@
 // These tests check the parsing of CKAN API responses into strongly-typed Rust structs.
 // They help ensure that changes to the API or our code are caught early.
 
+use crate::ckan::fetch_dataset_list;
 use crate::ckan::PackageListResponse;
 use crate::ckan::PackageShowResponse;
-use crate::ckan::fetch_dataset_list;
 use crate::config::Config;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};

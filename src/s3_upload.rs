@@ -17,7 +17,8 @@ pub async fn upload_to_s3(config: &Config, csv_file: &str) -> Result<(), AppErro
     info!("Uploading {} to S3 bucket...", csv_file);
 
     // Load AWS configuration with optimised settings
-    let region_provider = RegionProviderChain::default_provider().or_else(Region::new(config.aws_region.clone()));
+    let region_provider =
+        RegionProviderChain::default_provider().or_else(Region::new(config.aws_region.clone()));
     let aws_config = aws_config::from_env().region(region_provider).load().await;
 
     let client = S3Client::new(&aws_config);
@@ -25,7 +26,9 @@ pub async fn upload_to_s3(config: &Config, csv_file: &str) -> Result<(), AppErro
     let key = csv_file.split('/').next_back().unwrap_or(csv_file);
 
     // Use ByteStream::from_path for memory-efficient streaming upload
-    let bytestream = ByteStream::from_path(csv_file).await.map_err(|e| AppError::Other(e.to_string()))?;
+    let bytestream = ByteStream::from_path(csv_file)
+        .await
+        .map_err(|e| AppError::Other(e.to_string()))?;
 
     info!("Uploading file to S3: bucket={}, key={}", bucket, key);
 
@@ -38,6 +41,9 @@ pub async fn upload_to_s3(config: &Config, csv_file: &str) -> Result<(), AppErro
         .await
         .map_err(|e| AppError::Other(format!("S3 upload failed: {e}")))?;
 
-    info!("Successfully uploaded file to S3: bucket={}, key={}", bucket, key);
+    info!(
+        "Successfully uploaded file to S3: bucket={}, key={}",
+        bucket, key
+    );
     Ok(())
 }
