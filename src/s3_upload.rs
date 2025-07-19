@@ -36,7 +36,7 @@ pub async fn upload_to_s3(config: &Config, csv_file: &str) -> Result<(), AppErro
         .body(bytestream)
         .send()
         .await
-        .map_err(|e| AppError::Other(format!("S3 upload failed: {}", e)))?;
+        .map_err(|e| AppError::Other(format!("S3 upload failed: {e}")))?;
 
     info!("Successfully uploaded file to S3: bucket={}, key={}", bucket, key);
     Ok(())
