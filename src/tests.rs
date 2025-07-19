@@ -8,7 +8,6 @@ use crate::ckan::fetch_dataset_list;
 use crate::config::Config;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
-use tokio;
 
 #[test]
 fn test_parse_package_list_response() {

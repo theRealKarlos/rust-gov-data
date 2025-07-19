@@ -97,7 +97,7 @@ pub async fn fetch_dataset_list(
     test_mode: bool,
 ) -> Result<Vec<String>, AppError> {
     let response = client
-        .get(&config.dataset_list_url())
+        .get(config.dataset_list_url())
         .timeout(std::time::Duration::from_secs(config.http_timeout_secs))
         .send()
         .await?;
