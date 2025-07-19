@@ -12,6 +12,12 @@ pub struct Config {
     pub csv_file: String,
     /// The concurrency limit for async processing.
     pub concurrency_limit: usize,
+    /// The AWS region to use for S3 and other AWS services.
+    pub aws_region: String,
+    /// The HTTP timeout (in seconds) for API requests.
+    pub http_timeout_secs: u64,
+    /// The dataset limit for test mode (number of datasets to process).
+    pub test_mode_dataset_limit: usize,
 }
 
 impl Config {
@@ -27,6 +33,13 @@ impl Config {
             concurrency_limit: Self::get_env_or_default("CONCURRENCY_LIMIT", "10")
                 .parse()
                 .unwrap_or(10),
+            aws_region: Self::get_env_or_default("AWS_REGION", "eu-west-2"),
+            http_timeout_secs: Self::get_env_or_default("HTTP_TIMEOUT_SECS", "15")
+                .parse()
+                .unwrap_or(15),
+            test_mode_dataset_limit: Self::get_env_or_default("TEST_MODE_DATASET_LIMIT", "20")
+                .parse()
+                .unwrap_or(20),
         }
     }
 

@@ -45,7 +45,7 @@ pub struct DatasetMetadata {
 async fn process_datasets(config: &Config, test_mode: bool) -> Result<(), AppError> {
     info!("Starting process_datasets: test_mode = {}", test_mode);
     // Use the optimised HTTP client with better connection pooling
-    let client = Arc::new(create_http_client()?);
+    let client = Arc::new(create_http_client(config)?);
     let dataset_ids = fetch_dataset_list(&client, config, test_mode).await?;
     info!("Fetched {} dataset ids", dataset_ids.len());
     let concurrency_limit = config.concurrency_limit;

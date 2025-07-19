@@ -6,20 +6,6 @@ use reqwest::Client;
 use serde::Deserialize;
 use std::sync::Arc;
 
-// Constants for HTTP client and API configuration
-/// Maximum number of datasets to process in test mode for faster testing
-const TEST_MODE_DATASET_LIMIT: usize = 20;
-/// HTTP request timeout in seconds for CKAN API calls
-const HTTP_TIMEOUT_SECS: u64 = 15;
-/// Connection timeout in seconds for establishing HTTP connections
-const CONNECT_TIMEOUT_SECS: u64 = 10;
-/// TCP keepalive interval in seconds to maintain persistent connections
-const KEEPALIVE_SECS: u64 = 60;
-/// How long to keep idle connections in the pool before closing them
-const POOL_IDLE_TIMEOUT_SECS: u64 = 90;
-/// Maximum number of idle HTTP connections to maintain per host
-const MAX_IDLE_CONNECTIONS_PER_HOST: usize = 10;
-
 // Compile regex once and reuse it for HTML tag removal for performance.
 static HTML_TAG_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"<[^>]+>").expect("HTML tag regex should compile"));
@@ -93,13 +79,13 @@ pub fn extract_resource_formats_and_urls(dataset: &CkanDataset) -> (String, Vec<
 }
 
 /// Creates an optimised HTTP client with connection pooling and timeouts for efficient API access.
-pub fn create_http_client() -> Result<Client, AppError> {
+pub fn create_http_client(config: &Config) -> Result<Client, AppError> {
     Ok(Client::builder()
-        .pool_max_idle_per_host(MAX_IDLE_CONNECTIONS_PER_HOST)
-        .pool_idle_timeout(std::time::Duration::from_secs(POOL_IDLE_TIMEOUT_SECS))
-        .timeout(std::time::Duration::from_secs(HTTP_TIMEOUT_SECS))
-        .connect_timeout(std::time::Duration::from_secs(CONNECT_TIMEOUT_SECS))
-        .tcp_keepalive(Some(std::time::Duration::from_secs(KEEPALIVE_SECS)))
+        .pool_max_idle_per_host(10) // Increased from 5 for better concurrency
+        .pool_idle_timeout(std::time::Duration::from_secs(90)) // Keep connections alive longer
+        .timeout(std::time::Duration::from_secs(config.http_timeout_secs)) // Configurable timeout
+        .connect_timeout(std::time::Duration::from_secs(10)) // Add connection timeout
+        .tcp_keepalive(Some(std::time::Duration::from_secs(60))) // Enable TCP keepalive
         .build()?)
 }
 
@@ -111,8 +97,8 @@ pub async fn fetch_dataset_list(
     test_mode: bool,
 ) -> Result<Vec<String>, AppError> {
     let response = client
-        .get(config.dataset_list_url())
-        .timeout(std::time::Duration::from_secs(HTTP_TIMEOUT_SECS))
+        .get(&config.dataset_list_url())
+        .timeout(std::time::Duration::from_secs(config.http_timeout_secs))
         .send()
         .await?;
     let package_list: PackageListResponse = response.json().await?;
@@ -120,7 +106,7 @@ pub async fn fetch_dataset_list(
         package_list
             .result
             .into_iter()
-            .take(TEST_MODE_DATASET_LIMIT)
+            .take(config.test_mode_dataset_limit)
             .collect()
     } else {
         package_list.result
@@ -137,7 +123,7 @@ pub async fn fetch_dataset_metadata(
     let url = format!("{}{}", config.dataset_metadata_url(), dataset_id);
     let response = client
         .get(&url)
-        .timeout(std::time::Duration::from_secs(HTTP_TIMEOUT_SECS))
+        .timeout(std::time::Duration::from_secs(config.http_timeout_secs))
         .send()
         .await?;
     if response.status().is_success() {

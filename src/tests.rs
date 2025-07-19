@@ -4,7 +4,11 @@
 
 use crate::ckan::PackageListResponse;
 use crate::ckan::PackageShowResponse;
+use crate::ckan::fetch_dataset_list;
 use crate::config::Config;
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
+use tokio;
 
 #[test]
 fn test_parse_package_list_response() {
@@ -73,4 +77,39 @@ fn test_config_validation_zero_concurrency() {
     assert!(result.is_err());
     let error_msg = result.unwrap_err().to_string();
     assert!(error_msg.contains("Concurrency limit must be greater than zero"));
+}
+
+#[tokio::test]
+async fn test_fetch_dataset_list_success() {
+    // Start a mock server
+    let mock_server = MockServer::start().await;
+    // Mock CKAN /package_list endpoint
+    let response = serde_json::json!({ "result": ["dataset1", "dataset2"] });
+    Mock::given(method("GET"))
+        .and(path("/package_list"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response))
+        .mount(&mock_server)
+        .await;
+    // Use the mock server URL in config
+    let mut config = Config::new();
+    config.ckan_api_base_url = mock_server.uri();
+    let client = reqwest::Client::new();
+    let result = fetch_dataset_list(&client, &config, false).await.unwrap();
+    assert_eq!(result, vec!["dataset1", "dataset2"]);
+}
+
+#[tokio::test]
+async fn test_fetch_dataset_list_error() {
+    let mock_server = MockServer::start().await;
+    // Simulate a 500 error from CKAN
+    Mock::given(method("GET"))
+        .and(path("/package_list"))
+        .respond_with(ResponseTemplate::new(500))
+        .mount(&mock_server)
+        .await;
+    let mut config = Config::new();
+    config.ckan_api_base_url = mock_server.uri();
+    let client = reqwest::Client::new();
+    let result = fetch_dataset_list(&client, &config, false).await;
+    assert!(result.is_err());
 }

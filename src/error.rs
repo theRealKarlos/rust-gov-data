@@ -10,9 +10,6 @@ pub enum AppError {
     /// CSV writing failed
     #[error("CSV write failed: {0}")]
     Csv(#[from] csv::Error),
-    /// S3 upload failed
-    #[error("S3 upload failed: {0}")]
-    S3(#[from] Box<aws_sdk_s3::Error>),
     /// IO error (file operations)
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
